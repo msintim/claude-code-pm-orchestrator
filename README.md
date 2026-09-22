@@ -1,5 +1,6 @@
 # Claude Code PM Orchestrator — Starter Kit
 
+[![Validate](https://github.com/msintim/claude-code-pm-orchestrator/actions/workflows/validate.yml/badge.svg)](https://github.com/msintim/claude-code-pm-orchestrator/actions/workflows/validate.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A battle-tested operating model for running Claude Code as a **Project Manager** that plans, delegates to sub-agents, gates merges and deployments through adversarial review, and keeps continuity across sessions via a markdown memory vault.
