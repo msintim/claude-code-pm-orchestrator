@@ -15,7 +15,8 @@ KNOWN_AGENT_KEYS = REQUIRED_AGENT_KEYS | {
     "memory", "background", "omitClaudeMd", "effort", "isolation", "color", "initialPrompt", "experimental",
 }
 MODEL_ALIASES = {"sonnet", "opus", "haiku", "fable", "inherit"}
-FULL_MODEL_ID = re.compile(r"^claude-[a-z]+(-\d+)+$")
+# Anthropic-API model IDs, incl. dated/legacy ones and the [1m] suffix; Bedrock/Vertex IDs are not covered.
+FULL_MODEL_ID = re.compile(r"^claude-[a-z0-9]+(-[a-z0-9]+)*(\[1m\])?$")
 GATE_AGENT_PREFIX = "opus-"
 REQUIRED_PLACEHOLDERS = ("<WORKSPACE_ROOT>", "<YOUR_NAME>")
 
@@ -41,9 +42,9 @@ def check_agent_frontmatter(path: Path) -> None:
     if not isinstance(data, dict):
         errors.append(f"{path}: frontmatter did not parse to a mapping")
         return
-    missing = REQUIRED_AGENT_KEYS - data.keys()
+    missing = {key for key in REQUIRED_AGENT_KEYS if data.get(key) in (None, "")}
     if missing:
-        errors.append(f"{path}: frontmatter missing required key(s): {sorted(missing)}")
+        errors.append(f"{path}: frontmatter missing or empty required key(s): {sorted(missing)}")
     # Warn rather than fail: Claude Code adds frontmatter keys over time, but a typo is silently ignored.
     unknown = data.keys() - KNOWN_AGENT_KEYS
     if unknown:
@@ -54,7 +55,7 @@ def check_agent_frontmatter(path: Path) -> None:
         errors.append(f"{path}: name {name!r} does not match filename {path.stem!r}")
 
     model = data.get("model")
-    if model is None:
+    if model in (None, ""):
         return
     model = str(model)
     if model not in MODEL_ALIASES and not FULL_MODEL_ID.match(model):

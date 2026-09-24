@@ -71,7 +71,7 @@ _memory/
 
 The orchestrator prompt reads `MEMORY.md` at session start and writes to it after decisions, project status changes, and completed work — no separate setup needed beyond creating the folder.
 
-**Built-in auto memory:** Claude Code has its own per-project memory, also indexed by a file called `MEMORY.md` (under `~/.claude/projects/<project>/memory/`). The two don't collide — different folders, and the vault is never auto-loaded — but both ask Claude to save notes. The prompt makes the vault the source of truth. If you'd rather have one system, turn the built-in one off with `"autoMemoryEnabled": false` in `~/.claude/settings.json`.
+**Built-in auto memory:** Claude Code has its own per-project memory, also indexed by a file called `MEMORY.md` (under `~/.claude/projects/<project>/memory/`). They don't collide by default — different folders, and the vault is never auto-loaded — but both ask Claude to save notes. The prompt makes the vault the source of truth. If you'd rather have one system, turn the built-in one off with `"autoMemoryEnabled": false` in `~/.claude/settings.json`.
 
 ## Why this shape (the non-obvious parts)
 
