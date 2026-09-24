@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Validate the starter kit's structure: agent frontmatter parses, core prompt has its placeholders."""
+"""Validate the starter kit's structure: agent frontmatter parses and is well-formed, core prompt has its placeholders."""
 
+import re
 import sys
 from pathlib import Path
 
@@ -8,9 +9,18 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 REQUIRED_AGENT_KEYS = {"name", "description", "model"}
+# Sub-agent frontmatter keys documented at https://code.claude.com/docs/en/sub-agents
+KNOWN_AGENT_KEYS = REQUIRED_AGENT_KEYS | {
+    "tools", "disallowedTools", "permissionMode", "maxTurns", "skills", "mcpServers", "hooks",
+    "memory", "background", "omitClaudeMd", "effort", "isolation", "color", "initialPrompt", "experimental",
+}
+MODEL_ALIASES = {"sonnet", "opus", "haiku", "fable", "inherit"}
+FULL_MODEL_ID = re.compile(r"^claude-[a-z]+(-\d+)+$")
+GATE_AGENT_PREFIX = "opus-"
 REQUIRED_PLACEHOLDERS = ("<WORKSPACE_ROOT>", "<YOUR_NAME>")
 
 errors = []
+warnings = []
 
 
 def check_agent_frontmatter(path: Path) -> None:
@@ -26,7 +36,7 @@ def check_agent_frontmatter(path: Path) -> None:
     try:
         data = yaml.safe_load(raw)
     except yaml.YAMLError as exc:
-        errors.append(f"{path}: invalid YAML frontmatter — {exc}")
+        errors.append(f"{path}: invalid YAML frontmatter: {exc}")
         return
     if not isinstance(data, dict):
         errors.append(f"{path}: frontmatter did not parse to a mapping")
@@ -34,6 +44,23 @@ def check_agent_frontmatter(path: Path) -> None:
     missing = REQUIRED_AGENT_KEYS - data.keys()
     if missing:
         errors.append(f"{path}: frontmatter missing required key(s): {sorted(missing)}")
+    # Warn rather than fail: Claude Code adds frontmatter keys over time, but a typo is silently ignored.
+    unknown = data.keys() - KNOWN_AGENT_KEYS
+    if unknown:
+        warnings.append(f"{path}: unrecognized frontmatter key(s) {sorted(unknown)}: typo, or newer than this list?")
+
+    name = data.get("name")
+    if name is not None and name != path.stem:
+        errors.append(f"{path}: name {name!r} does not match filename {path.stem!r}")
+
+    model = data.get("model")
+    if model is None:
+        return
+    model = str(model)
+    if model not in MODEL_ALIASES and not FULL_MODEL_ID.match(model):
+        errors.append(f"{path}: model {model!r} is neither an alias {sorted(MODEL_ALIASES)} nor a full model ID like 'claude-opus-5-5'")
+    elif path.stem.startswith(GATE_AGENT_PREFIX) and model in MODEL_ALIASES:
+        errors.append(f"{path}: gate agent uses floating alias {model!r}; pin a full model ID")
 
 
 def check_core_prompt(path: Path) -> None:
@@ -56,6 +83,9 @@ def main() -> int:
         errors.append(f"{claude_md} not found")
     else:
         check_core_prompt(claude_md)
+
+    for w in warnings:
+        print(f"warning: {w}")
 
     if errors:
         print("Validation failed:")

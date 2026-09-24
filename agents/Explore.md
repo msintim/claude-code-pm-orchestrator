@@ -2,7 +2,7 @@
 name: Explore
 description: Read-only search agent for broad fan-out searches — when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. Overrides the built-in Explore so it runs on a cheaper/faster model instead of inheriting the PM's model. Pass a cheap-tier model per call for pure file/symbol lookups. Specify search breadth as "medium" (moderate exploration) or "very thorough" (multiple locations and naming conventions).
 model: sonnet
-disallowedTools: Edit, Write, NotebookEdit, Agent
+tools: Read, Grep, Glob, Bash
 omitClaudeMd: true
 ---
 

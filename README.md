@@ -9,16 +9,25 @@ This is extracted and genericized from a real multi-project setup. The specific 
 
 ## What's in here
 
-- **`CLAUDE.md`** — the core orchestrator prompt. Drop this in as your global `~/.claude/CLAUDE.md` (applies to every project) or a single project's `CLAUDE.md`.
+- **`CLAUDE.md`** — the core orchestrator prompt. Drop this in as your global `~/.claude/CLAUDE.md` (applies to every project) or a single project's `CLAUDE.md`. It opens with a guard telling sub-agents to skip the PM role, because Claude Code loads `CLAUDE.md` into sub-agents too.
 - **`agents/opus-reviewer.md`** — whole-branch pre-merge review gate, pinned to a high-capability model.
 - **`agents/opus-security-auditor.md`** — pre-deployment security gate.
 - **`agents/opus-architect.md`** — architecture adjudication / ADRs for high-stakes design decisions.
-- **`agents/Explore.md`** — cheap, fast, read-only codebase search agent (overrides Claude Code's built-in `Explore`).
+- **`agents/Explore.md`** — read-only codebase search agent (overrides Claude Code's built-in `Explore`). Runs on the Standard tier instead of inheriting the PM's (more expensive) model; pass `model: "haiku"` per call for pure file/symbol lookups. It uses the floating `sonnet` alias on purpose: it isn't a gate, so tracking the latest Sonnet is fine. Its tools are an allowlist (`Read, Grep, Glob, Bash`), so it gets none of your MCP tools; Bash stays, so "read-only" is enforced by its prompt, not by permissions.
+
+## Requirements
+
+- **Claude Code v2.1.271 or later** (`claude --version`). The Explore override relies on `omitClaudeMd` (added in v2.1.271 — older versions silently ignore it and load your whole PM prompt into every search), and older releases let `CLAUDE_CODE_SUBAGENT_MODEL` override the gate agents' pinned models.
+- **v2.1.277+ recommended** — the first release that reads `AGENTS.md` directly.
+- Python 3 only if you want to run the validator: `pip install -r requirements.txt && python scripts/validate.py`.
 
 ## Install
 
-1. Copy `CLAUDE.md` to `~/.claude/CLAUDE.md` (global, all projects) or `<project>/CLAUDE.md` (single project).
-2. Copy the four files in `agents/` to `~/.claude/agents/`.
+**Back up first:** these steps overwrite any existing files with the same names.
+
+1. Copy `CLAUDE.md` to `~/.claude/CLAUDE.md` (global, all projects) or `<project>/CLAUDE.md` (single project). If a `CLAUDE.md` is already there, merge instead of replacing it.
+   - **Projects that use `AGENTS.md`:** Claude Code reads `AGENTS.md` only when there is no `CLAUDE.md` in the working directory or any folder above it (your global `~/.claude/CLAUDE.md` doesn't count). Adding a project `CLAUDE.md` therefore silently stops `AGENTS.md` loading — make `@AGENTS.md` its first line, or set `"pluginConfigs": {"agents-md@builtin": {"options": {"instructionFiles": "claude-md-and-agents-md"}}}` in `settings.json`.
+2. Copy the four files in `agents/` to `~/.claude/agents/`. If you already have your own `Explore.md` there, this replaces it.
 3. Fill in the placeholders in `CLAUDE.md` (search for `<…>`):
    - `<WORKSPACE_ROOT>` — the folder containing your projects, e.g. `~/dev/Projects`.
    - `<YOUR_NAME>` — how you want to be addressed in reports.
@@ -31,6 +40,7 @@ This is extracted and genericized from a real multi-project setup. The specific 
      }
    }
    ```
+   Agents that set their own `model` (like the gate agents) keep it. Never set `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` — it overrides those pins by design.
 5. (Optional) Set up the memory vault — see below. Everything else works without it; you just lose cross-session continuity.
 
 ## The memory vault (optional but recommended)
@@ -60,6 +70,8 @@ _memory/
 ```
 
 The orchestrator prompt reads `MEMORY.md` at session start and writes to it after decisions, project status changes, and completed work — no separate setup needed beyond creating the folder.
+
+**Built-in auto memory:** Claude Code has its own per-project memory, also indexed by a file called `MEMORY.md` (under `~/.claude/projects/<project>/memory/`). The two don't collide — different folders, and the vault is never auto-loaded — but both ask Claude to save notes. The prompt makes the vault the source of truth. If you'd rather have one system, turn the built-in one off with `"autoMemoryEnabled": false` in `~/.claude/settings.json`.
 
 ## Why this shape (the non-obvious parts)
 
