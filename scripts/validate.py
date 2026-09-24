@@ -51,7 +51,7 @@ def check_agent_frontmatter(path: Path) -> None:
         warnings.append(f"{path}: unrecognized frontmatter key(s) {sorted(unknown)}: typo, or newer than this list?")
 
     name = data.get("name")
-    if name is not None and name != path.stem:
+    if name and name != path.stem:
         errors.append(f"{path}: name {name!r} does not match filename {path.stem!r}")
 
     model = data.get("model")
@@ -60,8 +60,8 @@ def check_agent_frontmatter(path: Path) -> None:
     model = str(model)
     if model not in MODEL_ALIASES and not FULL_MODEL_ID.match(model):
         errors.append(f"{path}: model {model!r} is neither an alias {sorted(MODEL_ALIASES)} nor a full model ID like 'claude-opus-5-5'")
-    elif path.stem.startswith(GATE_AGENT_PREFIX) and model in MODEL_ALIASES:
-        errors.append(f"{path}: gate agent uses floating alias {model!r}; pin a full model ID")
+    elif path.stem.startswith(GATE_AGENT_PREFIX) and (model in MODEL_ALIASES or model.endswith("-latest")):
+        errors.append(f"{path}: gate agent uses floating model {model!r}; pin a full, versioned model ID")
 
 
 def check_core_prompt(path: Path) -> None:
