@@ -1,7 +1,7 @@
 ---
 name: opus-architect
 description: Architecture adjudication, design-option analysis and ADRs for high-stakes decisions. Pinned to a specific high-capability model — dispatch this agent for ANY high-stakes architecture reasoning instead of passing a generic model alias (aliases like "opus" resolve to the newest release in that family, which may not be the one you validated against). Produces design artifacts only, never code.
-model: claude-opus-4-8
+model: claude-opus-5-5
 tools: Read, Grep, Glob, Bash
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: opus-reviewer
 description: Whole-branch pre-merge review gate and every confirming round after remediation. Pinned to a specific high-capability model — dispatch this agent for ANY high-stakes code review instead of passing a generic model alias (aliases like "opus" resolve to the newest release in that family, which may not be the one you validated against). Read-only — reports findings, never edits.
-model: claude-opus-4-8
+model: claude-opus-5-5
 tools: Read, Grep, Glob, Bash
 ---
 

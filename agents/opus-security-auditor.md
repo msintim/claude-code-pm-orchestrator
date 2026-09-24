@@ -1,7 +1,7 @@
 ---
 name: opus-security-auditor
 description: Pre-deployment security gate and any adversarial security audit. Pinned to a specific high-capability model — dispatch this agent for ANY high-stakes security work instead of passing a generic model alias (aliases like "opus" resolve to the newest release in that family, which may not be the one you validated against). Report-only, never fixes.
-model: claude-opus-4-8
+model: claude-opus-5-5
 tools: Read, Grep, Glob, Bash
 ---
 

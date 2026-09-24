@@ -22,7 +22,7 @@ This is extracted and genericized from a real multi-project setup. The specific 
 3. Fill in the placeholders in `CLAUDE.md` (search for `<…>`):
    - `<WORKSPACE_ROOT>` — the folder containing your projects, e.g. `~/dev/Projects`.
    - `<YOUR_NAME>` — how you want to be addressed in reports.
-   - Model IDs — verify current model IDs/names for your account; the ones here (`claude-opus-4-8`, `claude-sonnet-5`, etc.) will drift over time.
+   - Model IDs — verify current model IDs/names for your account; the ones here (`claude-opus-5-5`, `claude-sonnet-5`, etc.) will drift over time.
 4. (Optional) Set a default sub-agent model in `~/.claude/settings.json`:
    ```json
    {
