@@ -6,7 +6,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\"",
+    "test": "node --test \"test/*.test.mjs\" && node --test \"test/e2e/*.test.mjs\"",
     "test:unit": "node --test \"test/*.test.mjs\""
   },
   "dependencies": {
