@@ -80,7 +80,7 @@ Add one line to your workspace `AGENTS.md` so every agent finds it:
 - /promo: product launch videos. Skill at ~/.claude/skills/promo (or ~/.agents/skills/promo); per-product config at <repo>/.promo/promo.yaml.
 ```
 
-Bundled music (`skills/promo/assets/music/`) may be empty in this build. Without it, pass `--music-dir` with any licensed track plus its `.cues.json`, or render without music. See `skills/promo/SKILL.md` for the full workflow.
+Bundled music (`skills/promo/assets/music/`) holds three CC BY 4.0 tracks from ende.app by Sascha Ende: `happy-beats-business-moves-vol-1`, `-vol-3` and `-vol-12`. To use your own music, pass `--music-dir` with any licensed track plus its `.cues.json`, or render without music. See `skills/promo/SKILL.md` for the full workflow.
 
 ## The memory vault (optional but recommended)
 

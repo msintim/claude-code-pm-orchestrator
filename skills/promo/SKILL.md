@@ -121,7 +121,7 @@ Capture, render and delivery commands are mechanical and can run in the parent s
 
 ## Music
 
-`music` in `scenes.json` names a track: `{ "track": "<name>", "gain_db": -14, "duck_db": -6 }` (those are the defaults). Tracks live in `assets/music/` as `<track>.mp3` plus `<track>.cues.json`, with a row per track in `assets/music/LICENSES.md`. That folder may be empty in this build; `--music-dir <dir>` on `render.mjs` and `reframe.mjs` points at any licensed track with its cues file. Cue files for new tracks come from the maintainer tool `tools/analyze_music_cues.py` (run via `uv run --project tools ...`). Cue alignment is in `references/compose.md`; the CC BY credit line is in `references/deliver.md`.
+`music` in `scenes.json` names a track: `{ "track": "<name>", "gain_db": -14, "duck_db": -6 }` (those are the defaults). Tracks live in `assets/music/` as `<track>.mp3` plus `<track>.cues.json`, with a row per track in `assets/music/LICENSES.md`. Three ende.app tracks (CC BY 4.0, Sascha Ende) are bundled: `happy-beats-business-moves-vol-1`, `happy-beats-business-moves-vol-3` and `happy-beats-business-moves-vol-12`. `--music-dir <dir>` on `render.mjs` and `reframe.mjs` points at any licensed track with its cues file. Cue files for new tracks come from the maintainer tool `tools/analyze_music_cues.py` (run via `uv run --project tools ...`). Cue alignment is in `references/compose.md`; the CC BY credit line is in `references/deliver.md`.
 
 ## References
 

@@ -200,6 +200,13 @@ test('music null -> no audio stream; music set -> one aac stream with duration =
   assert.equal(first.report.frameSequenceSha256, report.frameSequenceSha256, 'music does not change the frames');
 });
 
+test('a bundled track renders and records its CC BY credit line in render-report.json', async () => {
+  const { dir, report } = await doRender('music-bundled', { music: { track: 'happy-beats-business-moves-vol-3' } });
+  const credit = '"Happy Beats & Business Moves Vol. 3" by Sascha Ende, CC-BY-4.0, https://ende.app/en/song/12868-happy-beats-business-moves-vol-3';
+  assert.equal(report.audio.attribution, credit);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'render-report.json'), 'utf8')).audio.attribution, credit);
+});
+
 test('an unknown music track is refused before any frame is rendered, naming the file', async () => {
   const musicDir = tmpDir('render-music-empty');
   await assert.rejects(doRender('music-missing', { music: { track: 'ghost', musicDir } }), /ghost\.mp3/);
