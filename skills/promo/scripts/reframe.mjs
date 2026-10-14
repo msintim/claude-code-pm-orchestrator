@@ -73,7 +73,7 @@ export async function main(argv, { load = loadScenes } = {}) {
     const workDir = path.join(outDir, `work-${values.ratio}`);
     const report = await renderVideo({
       scenes: doc, size, captureDir: values.capture, outFile: path.resolve(values.out), workDir,
-      ffmpeg, ffprobe, captionMode,
+      ffmpeg, ffprobe, captionMode, reportFile: `render-report-${values.ratio}.json`,
       music: doc.music ? { ...doc.music, musicDir: values['music-dir'] } : null,
     });
     fs.rmSync(workDir, { recursive: true, force: true });
@@ -81,7 +81,7 @@ export async function main(argv, { load = loadScenes } = {}) {
 
     const { entries, warnings } = cropReport(doc.scenes, size);
     for (const w of warnings) logger.error(`warning: ${w}`);
-    fs.writeFileSync(path.join(outDir, 'reframe-report.json'), `${JSON.stringify({ ratio: values.ratio, size, scenes: entries, warnings }, null, 2)}\n`);
+    fs.writeFileSync(path.join(outDir, `reframe-report-${values.ratio}.json`), `${JSON.stringify({ ratio: values.ratio, size, scenes: entries, warnings }, null, 2)}\n`);
 
     if (values.stills) {
       const { files } = await renderStills({

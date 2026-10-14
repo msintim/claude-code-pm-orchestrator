@@ -232,7 +232,7 @@ async function planAudio(music, timeline, scenes) {
  * PNG bytes in order, so identical inputs give an identical sequence. `music` (null for a silent master)
  * is described on planAudio.
  */
-export async function renderVideo({ scenes: doc, size, captureDir, outFile, workDir, ffmpeg, music = null, webm = false, keepFrames = false, captionMode = null }) {
+export async function renderVideo({ scenes: doc, size, captureDir, outFile, workDir, ffmpeg, music = null, webm = false, keepFrames = false, captionMode = null, reportFile = 'render-report.json' }) {
   const { scenes, brand } = doc;
   assertFootageFiles(scenes, captureDir);
   const timeline = buildTimeline(scenes, FPS);
@@ -294,6 +294,6 @@ export async function renderVideo({ scenes: doc, size, captureDir, outFile, work
     cueAlignment: audio?.alignment ?? [],
     layoutIssues,
   };
-  fs.writeFileSync(path.join(path.dirname(outFile), 'render-report.json'), `${JSON.stringify(report, null, 2)}\n`);
+  fs.writeFileSync(path.join(path.dirname(outFile), reportFile), `${JSON.stringify(report, null, 2)}\n`);
   return report;
 }

@@ -42,8 +42,7 @@ const pngSize = (file) => {
   return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
 };
 
-async function runReframe(name, ratio, extra = []) {
-  const dir = tmpDir(`reframe-${name}`);
+async function runReframe(dir, ratio, extra = []) {
   const out = path.join(dir, `promo-${ratio}.mp4`);
   const t0 = Date.now();
   const result = await runCliAsync(reframe, ['--scenes', scenesFile, '--capture', captureDir, '--ratio', ratio, '--out', out, ...extra]);
@@ -59,9 +58,10 @@ before(async () => {
   scenesFile = path.join(tmpDir('reframe-scenes'), 'scenes.json');
   fs.writeFileSync(scenesFile, JSON.stringify(DOC));
   const stills = tmpDir('reframe-stills');
+  const shared = tmpDir('reframe-out');
   [reel, square] = await Promise.all([
-    runReframe('reel', '9x16', ['--music-dir', musicDir, '--stills', stills]),
-    runReframe('square', '1x1', ['--music-dir', musicDir]),
+    runReframe(shared, '9x16', ['--music-dir', musicDir, '--stills', stills]),
+    runReframe(shared, '1x1', ['--music-dir', musicDir]),
   ]);
   reel.stills = stills;
 });
@@ -123,7 +123,7 @@ test('template scenes are re-rendered natively, not cropped: the 9x16 hook still
 });
 
 test('reframe-report warns with coverage 0.5625 for the spec focus sample at 9x16', () => {
-  const report = JSON.parse(fs.readFileSync(path.join(reel.dir, 'reframe-report.json'), 'utf8'));
+  const report = JSON.parse(fs.readFileSync(path.join(reel.dir, 'reframe-report-9x16.json'), 'utf8'));
   assert.equal(report.ratio, '9x16');
   assert.deepEqual(report.size, REEL);
   assert.deepEqual(report.scenes.map((s) => s.index), [1], 'one entry per footage scene, by scenes.json index');
@@ -136,7 +136,7 @@ test('reframe-report warns with coverage 0.5625 for the spec focus sample at 9x1
 });
 
 test('1x1 report has full coverage and no warnings', () => {
-  const report = JSON.parse(fs.readFileSync(path.join(square.dir, 'reframe-report.json'), 'utf8'));
+  const report = JSON.parse(fs.readFileSync(path.join(square.dir, 'reframe-report-1x1.json'), 'utf8'));
   assert.equal(report.ratio, '1x1');
   assert.deepEqual(report.size, { w: 1080, h: 1080 });
   assert.equal(report.scenes[0].coverage, 1);
@@ -197,4 +197,12 @@ test('CLI refuses an unknown ratio (exit 1) and a missing flag', async () => {
   const none = await runCliAsync(reframe, ['--scenes', scenesFile]);
   assert.equal(none.status, 1);
   assert.match(none.stderr, /usage/);
+});
+
+test('both ratios reframed into one dir keep distinct render and reframe reports', () => {
+  assert.equal(reel.dir, square.dir);
+  const names = fs.readdirSync(reel.dir).filter((f) => f.endsWith('.json')).sort();
+  assert.deepEqual(names, ['reframe-report-1x1.json', 'reframe-report-9x16.json', 'render-report-1x1.json', 'render-report-9x16.json']);
+  const sizes = ['1x1', '9x16'].map((r) => JSON.parse(fs.readFileSync(path.join(reel.dir, `render-report-${r}.json`), 'utf8')).size);
+  assert.deepEqual(sizes, [{ w: 1080, h: 1080 }, REEL]);
 });
