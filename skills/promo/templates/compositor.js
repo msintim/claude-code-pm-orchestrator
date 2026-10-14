@@ -17,6 +17,7 @@ let timeline = null;
 let layers = [];
 let specScenes = [];
 let stageSize = null;
+let captionModeName = null; // 'feed' | 'reel' | null, stamped on the caption bar
 const videos = new Map(); // layer index -> video element
 
 const ease = (p) => (1 - Math.cos(Math.PI * Math.min(Math.max(p, 0), 1))) / 2;
@@ -74,6 +75,7 @@ async function buildFootageLayer(el, scene, index) {
   if (typeof scene.caption === 'string') {
     const bar = await loadTemplate('caption-bar');
     fillFields(bar, scene);
+    if (captionModeName) bar.dataset.captionMode = captionModeName;
     const c = captionRect(stageSize);
     // Pin the bar to captionRect, whatever the ratio; the stylesheet's inset only approximates it.
     bar.style.cssText = `left:${c.x}px;top:${c.y}px;width:${c.w}px;height:${c.h}px;right:auto;bottom:auto;`
@@ -124,7 +126,8 @@ async function seekFootage(index, lt) {
   await nextFrames(2);
 }
 
-async function init({ scenes, brand, size, fps = 30 }) {
+async function init({ scenes, brand, size, fps = 30, captionMode = null }) {
+  captionModeName = captionMode;
   stage.style.width = `${size.w}px`;
   stage.style.height = `${size.h}px`;
   stage.dataset.theme = brand.theme;

@@ -22,6 +22,23 @@ export async function checkLayout(page, { size, sceneIndex }) {
       if (el.scrollWidth > el.clientWidth + tol || el.scrollHeight > el.clientHeight + slackY) {
         out.push({ kind: 'overflow', field, detail: `content ${el.scrollWidth}x${el.scrollHeight} exceeds its ${el.clientWidth}x${el.clientHeight} box` });
       }
+      // An auto-height field never overflows its own box, so also require it to stay inside the content
+      // box of its template (the section minus its padding, which carries the safe band): text that
+      // wraps into more lines than fit spills into that padding.
+      const host = el.closest('[data-template]');
+      if (host) {
+        const h = host.getBoundingClientRect();
+        const cs = getComputedStyle(host);
+        const inset = (side) => parseFloat(cs[`padding${side}`]) + parseFloat(cs[`border${side}Width`]);
+        const box = { left: h.left + inset('Left'), top: h.top + inset('Top'), right: h.right - inset('Right'), bottom: h.bottom - inset('Bottom') };
+        if (r.left < box.left - tol || r.top < box.top - tol || r.right > box.right + tol || r.bottom > box.bottom + tol) {
+          out.push({
+            kind: 'overflow',
+            field,
+            detail: `box ${fmt(r.left - box.left)},${fmt(r.top - box.top)} to ${fmt(r.right - box.left)},${fmt(r.bottom - box.top)} leaves the ${fmt(box.right - box.left)}x${fmt(box.bottom - box.top)} content area of its template`,
+          });
+        }
+      }
       if (rel.left < -tol || rel.top < -tol || rel.right > stage.width + tol || rel.bottom > stage.height + tol) {
         out.push({ kind: 'outside-stage', field, detail: `box ${fmt(rel.left)},${fmt(rel.top)} to ${fmt(rel.right)},${fmt(rel.bottom)} is outside ${fmt(stage.width)}x${fmt(stage.height)}` });
       }

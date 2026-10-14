@@ -8,6 +8,7 @@ import { serveDirs } from './server.js';
 import { run } from './ffmpeg.js';
 import { buildTimeline, stillTimes, at } from './timeline.js';
 import { checkLayout } from './layout-check.js';
+import { safeBand } from './geometry.js';
 import {
   DEFAULT_DUCK_DB, DEFAULT_GAIN_DB, buildAudioFilter, duckIntervals,
 } from './audio.js';
@@ -19,6 +20,25 @@ const GENERIC_FONTS = new Set(['serif', 'sans-serif', 'monospace']);
 const FPS = 30;
 
 export const ENCODE = Object.freeze({ codec: 'libx264', crf: 18, pix_fmt: 'yuv420p', preset: 'slow', movflags: '+faststart' });
+
+/** A bad command line or an unusable input file: the caller's CLI exits 1. */
+export class UsageError extends Error {}
+
+/** The capture step's report.json; a failed or unreadable capture is refused. Returns the per-flow durations. */
+export function readCaptureDurations(captureDir) {
+  const file = path.join(captureDir, 'report.json');
+  let report;
+  try {
+    report = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    throw new UsageError(`cannot read the capture report ${file}: ${e.message}`);
+  }
+  if (report.status !== 'ok') {
+    const why = report.failed ? ` (flow "${report.failed.flow}": ${report.failed.message})` : '';
+    throw new UsageError(`capture report ${file} has status "${report.status}"${why}; re-run capture before rendering`);
+  }
+  return Object.fromEntries((report.flows ?? []).map((f) => [f.name, f.durationSec]));
+}
 
 export class FootageMissingError extends Error {
   constructor(flow, file) {
@@ -76,8 +96,21 @@ function stageDir(brandScenes) {
   return dir;
 }
 
-export async function openCompositor({ scenes, brand, size, captureDir }) {
-  const spec = { scenes, brand, size, fps: FPS };
+export const CAPTION_MODES = Object.freeze(['feed', 'reel']);
+
+/**
+ * `captionMode` says where footage captions live: 'feed' (1:1, bottom-anchored with an 8% margin) or
+ * 'reel' (9:16, inside the platform safe band). The caption bar is positioned by captionRect(size) in both,
+ * and the mode is stamped on the bar as data-caption-mode. 'reel' needs a size that has a safe band.
+ */
+export async function openCompositor({ scenes, brand, size, captureDir, captionMode = null }) {
+  if (captionMode !== null && !CAPTION_MODES.includes(captionMode)) {
+    throw new Error(`captionMode must be one of ${CAPTION_MODES.join(', ')}, got "${captionMode}"`);
+  }
+  if (captionMode === 'reel' && safeBand(size).top === 0) {
+    throw new Error(`captionMode "reel" needs a 9:16 size with a safe band, got ${size.w}x${size.h}`);
+  }
+  const spec = { scenes, brand, size, fps: FPS, captionMode };
   const dir = stageDir(spec);
   const mounts = [
     { prefix: '/', root: dir },
@@ -110,11 +143,11 @@ export async function openCompositor({ scenes, brand, size, captureDir }) {
 }
 
 /** One PNG per scene midpoint and per windowed-transition midpoint; template scenes are layout-checked. */
-export async function renderStills({ scenes, brand, size, captureDir, outDir }) {
+export async function renderStills({ scenes, brand, size, captureDir, outDir, captionMode = null }) {
   assertFootageFiles(scenes, captureDir);
   fs.mkdirSync(outDir, { recursive: true });
   const timeline = buildTimeline(scenes, FPS);
-  const c = await openCompositor({ scenes, brand, size, captureDir });
+  const c = await openCompositor({ scenes, brand, size, captureDir, captionMode });
   const files = [];
   const layoutIssues = [];
   try {
@@ -131,6 +164,27 @@ export async function renderStills({ scenes, brand, size, captureDir, outDir }) 
     await c.close();
   }
   return { files, layoutIssues };
+}
+
+/**
+ * Layout-check every scene (footage captions included) at its midpoint, before anything is encoded.
+ * Returns the issues, each tagged with its scene index; an empty array means the layout is clean.
+ */
+export async function layoutGate(scenes, brand, size, { captureDir, captionMode = null } = {}) {
+  assertFootageFiles(scenes, captureDir);
+  const timeline = buildTimeline(scenes, FPS);
+  const c = await openCompositor({ scenes, brand, size, captureDir, captionMode });
+  const issues = [];
+  try {
+    for (const still of stillTimes(timeline)) {
+      if (still.kind !== 'scene') continue;
+      await c.drive(still.t);
+      issues.push(...await checkLayout(c.page, { size, sceneIndex: still.index }));
+    }
+  } finally {
+    await c.close();
+  }
+  return issues;
 }
 
 /** Tile the images into one PNG, `cols` per row, each scaled to `thumbWidth`. */
@@ -178,7 +232,7 @@ async function planAudio(music, timeline, scenes) {
  * PNG bytes in order, so identical inputs give an identical sequence. `music` (null for a silent master)
  * is described on planAudio.
  */
-export async function renderVideo({ scenes: doc, size, captureDir, outFile, workDir, ffmpeg, music = null, webm = false, keepFrames = false }) {
+export async function renderVideo({ scenes: doc, size, captureDir, outFile, workDir, ffmpeg, music = null, webm = false, keepFrames = false, captionMode = null }) {
   const { scenes, brand } = doc;
   assertFootageFiles(scenes, captureDir);
   const timeline = buildTimeline(scenes, FPS);
@@ -190,7 +244,7 @@ export async function renderVideo({ scenes: doc, size, captureDir, outFile, work
 
   const hash = crypto.createHash('sha256');
   const layoutIssues = [];
-  const c = await openCompositor({ scenes, brand, size, captureDir });
+  const c = await openCompositor({ scenes, brand, size, captureDir, captionMode });
   try {
     // After the font check (openCompositor) and before any frame: a bad track or cues file fails fast.
     if (music) audio = await planAudio(music, timeline, scenes);

@@ -6,11 +6,9 @@ import { pathToFileURL } from 'node:url';
 import { loadScenes, ValidationError } from './lib/schema.js';
 import { FfmpegUnavailableError, requireFfmpeg } from './lib/ffmpeg.js';
 import {
-  assertFootageFiles, makeContactSheet, renderStills, renderVideo,
+  UsageError, assertFootageFiles, makeContactSheet, readCaptureDurations, renderStills, renderVideo,
 } from './lib/render-core.js';
 import { createLogger } from './lib/log.js';
-
-class UsageError extends Error {}
 
 function parseSize(text) {
   const m = /^(\d+)x(\d+)$/.exec(text);
@@ -19,22 +17,6 @@ function parseSize(text) {
 }
 
 const USAGE = 'usage: render.mjs --scenes <scenes.json> --capture <dir> --out <dir> [--size WxH] [--stills] [--webm] [--keep-frames] [--music-dir <dir>]';
-
-/** The capture step's report.json; a failed or unreadable capture is refused. Returns the per-flow durations. */
-function readCaptureDurations(captureDir) {
-  const file = path.join(captureDir, 'report.json');
-  let report;
-  try {
-    report = JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (e) {
-    throw new UsageError(`cannot read the capture report ${file}: ${e.message}`);
-  }
-  if (report.status !== 'ok') {
-    const why = report.failed ? ` (flow "${report.failed.flow}": ${report.failed.message})` : '';
-    throw new UsageError(`capture report ${file} has status "${report.status}"${why}; re-run capture before rendering`);
-  }
-  return Object.fromEntries((report.flows ?? []).map((f) => [f.name, f.durationSec]));
-}
 
 async function main(argv) {
   const logger = createLogger();

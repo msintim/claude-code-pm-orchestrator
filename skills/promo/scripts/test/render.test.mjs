@@ -5,7 +5,7 @@ import path from 'node:path';
 import { openCompositor, renderVideo } from '../lib/render-core.js';
 import { requireFfmpeg, run, ffprobeJson } from '../lib/ffmpeg.js';
 import { captionRect } from '../lib/geometry.js';
-import { tmpDir, runCliAsync, scriptsDir } from './helpers.mjs';
+import { tmpDir, runCliAsync, scriptsDir, writeCapture, writeToneMusicDir } from './helpers.mjs';
 
 const SIZE = { w: 1920, h: 1080 };
 const BRAND = { primary: '#1d4ed8', accent: '#f59e0b', font: 'sans-serif', theme: 'light' };
@@ -16,23 +16,10 @@ let bins;
 let captureDir;
 const opened = [];
 
-// A 60 fps, 1920x1080 VP9 clip: the same codec, rate and size the capture step writes. Every frame differs
-// strongly from its neighbours (a smooth field whose phase moves with the frame number), so a seek that
-// lands one source frame off scores far below one that lands exactly.
-const CLIP = "color=c=black:s=64x36:r=60:d=4,geq=r='128+127*sin(N*0.9+X*0.2)':g='128+127*sin(N*1.3+Y*0.3)':"
-  + "b='128+127*sin(N*0.5+X*0.1+Y*0.1)',scale=1920:1080:flags=bicubic,format=yuv420p";
 before(async () => {
   bins = await requireFfmpeg();
   captureDir = tmpDir('render-capture');
-  await run(bins.ffmpeg, [
-    '-hide_banner', '-y', '-f', 'lavfi', '-i', CLIP,
-    '-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '24', '-deadline', 'realtime', '-cpu-used', '8',
-    '-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
-    path.join(captureDir, 'sample.webm'),
-  ]);
-  fs.writeFileSync(path.join(captureDir, 'report.json'), JSON.stringify({
-    version: 1, status: 'ok', flows: [{ name: 'sample', video: 'sample.webm', durationSec: 4 }],
-  }));
+  await writeCapture(bins.ffmpeg, captureDir);
 });
 after(async () => { await Promise.all(opened.map((c) => c.close())); });
 
@@ -192,9 +179,7 @@ test('two renders of the same scenes have identical frameSequenceSha256', async 
 });
 
 test('music null -> no audio stream; music set -> one aac stream with duration == video +/- 0.05; cueAlignment filled', async () => {
-  const musicDir = tmpDir('render-music');
-  await run(bins.ffmpeg, ['-hide_banner', '-y', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=2:sample_rate=48000', path.join(musicDir, 'tone.wav')]);
-  fs.copyFileSync(path.join(scriptsDir, 'test', 'fixtures', 'valid.cues.json'), path.join(musicDir, 'tone.cues.json'));
+  const musicDir = await writeToneMusicDir(bins.ffmpeg);
 
   const { dir, report } = await doRender('music', { music: { track: 'tone', gain_db: -10, musicDir } });
   const probe = await ffprobeJson(bins.ffprobe, path.join(dir, 'master-16x9.mp4'));
