@@ -67,8 +67,11 @@ const PII_RELAY = `(() => {
 })();`;
 
 // Failures that must not leave extra screenshots behind: the offending still already exists, or the page holds credentials.
-const NO_FAILURE_SHOT = new Set(['pii', 'login']);
-const GATE_KINDS = new Set(['origin', 'pii', 'login']);
+const NO_FAILURE_SHOT = new Set(['pii', 'login', 'hide']);
+const GATE_KINDS = new Set(['origin', 'pii', 'login', 'hide']);
+
+// report.json and stderr are shared artifacts: they name what was found (kind, frame) without repeating the value.
+export const maskMatch = (m) => { const s = String(m); return s.length ? `${Array.from(s)[0]}***` : '***'; };
 
 /** A beat that could not run: carries what report.failed needs. */
 class FlowFailure extends Error {
@@ -148,6 +151,8 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
     deviceScaleFactor: DEVICE_SCALE_FACTOR,
     reducedMotion: 'no-preference',
     serviceWorkers: 'block', // see performLogin: workers bypass the origin gate
+    // The hide and cursor styles are injected by script; a staging style-src CSP would silently drop them.
+    bypassCSP: true,
     storageState,
   });
   let cap;
@@ -166,6 +171,10 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
     await context.addInitScript(PII_RELAY);
     if (hide.length) await context.addInitScript(hideInitScript(hide));
     page = await context.newPage();
+    // A renderer that dies or is closed mid-flow loses relayed hits and the unscanned tail: that is a gate failure, not a quiet end.
+    let pageGone = null;
+    page.on('crash', () => { pageGone ??= 'the page crashed'; });
+    page.on('close', () => { pageGone ??= 'the page was closed unexpectedly'; });
 
     const visited = [];
     page.on('framenavigated', (frame) => {
@@ -182,7 +191,7 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
     });
     // Hits found on a still, plus any transient ones queued so far, fail the run; every one is kept in report.pii.
     const piiFailure = (index, found) => {
-      const all = [...found, ...pending.splice(0)];
+      const all = [...found, ...pending.splice(0)].map((h) => ({ ...h, match: maskMatch(h.match) }));
       pii.hits.push(...all);
       const h = all[0];
       return new FlowFailure({
@@ -190,13 +199,22 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
         message: `PII gate: ${h.frame} contains ${h.kind} "${h.match}" (${h.source})`,
       });
     };
+    const goneFailure = (index) => new FlowFailure({
+      flow: flow.name, beatIndex: index, kind: 'pii',
+      message: `PII gate: ${pageGone} in flow ${flow.name}, so what was on screen could not be verified`,
+    });
     const checkGates = (index) => {
       if (gate.violation) throw originFailure(index);
       if (pending.length) throw piiFailure(index, []);
+      if (pageGone) throw goneFailure(index);
     };
     // The relay polls every 50 ms; this picks up whatever it has not shipped yet.
     const drainPage = async () => {
-      const hits = await page.evaluate(() => window.__promoPiiHits?.splice(0) ?? []).catch(() => []);
+      // Mid-navigation the document (and its array) is gone and the next page's relay takes over; a dead page is not that.
+      const hits = await page.evaluate(() => window.__promoPiiHits?.splice(0) ?? []).catch((e) => {
+        if (pageGone || page.isClosed()) throw e;
+        return [];
+      });
       const frame = frameLabel();
       for (const h of hits) pending.push({ frame, kind: h.kind, match: h.match, source: 'dom' });
     };
@@ -232,12 +250,24 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
     if (cap.nowT() === 0) throw new EnvironmentError('the browser delivered no screencast frames');
 
     const hidden = Object.fromEntries(hide.map((s) => [s, 0]));
-    const countHidden = async () => {
+    // Counts matches per hide selector and proves each one really is display:none (a CSP, an inline !important or
+    // a late style can defeat the injected rule); any visible match means the redaction failed, so the flow fails closed.
+    const checkHidden = async (index) => {
       if (!hide.length) return;
-      const counts = await page.evaluate((sels) => sels.map((s) => {
-        try { return document.querySelectorAll(s).length; } catch { return 0; }
-      }), hide).catch(() => null);
-      counts?.forEach((n, i) => { hidden[hide[i]] = Math.max(hidden[hide[i]], n); });
+      const res = await page.evaluate((sels) => sels.map((s) => {
+        try {
+          const els = Array.from(document.querySelectorAll(s));
+          return { n: els.length, visible: els.filter((el) => getComputedStyle(el).display !== 'none').length };
+        } catch { return { n: 0, visible: 0 }; }
+      }), hide);
+      res.forEach(({ n }, i) => { hidden[hide[i]] = Math.max(hidden[hide[i]], n); });
+      const bad = res.findIndex((r) => r.visible > 0);
+      if (bad >= 0) {
+        throw new FlowFailure({
+          flow: flow.name, beatIndex: index, kind: 'hide',
+          message: `hide gate: flow "${flow.name}" beat ${index}: ${res[bad].visible} element(s) matching hide selector "${hide[bad]}" are still visible`,
+        });
+      }
     };
 
     const cursor = { pos: null };
@@ -307,7 +337,7 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
           const url = new URL(value, config.staging.url).href;
           await hooks.beforeNavigate?.(url, { flow: flow.name, beatIndex: index });
           await page.goto(url, { waitUntil: 'load', timeout: beatTimeout });
-          await countHidden();
+          await checkHidden(index);
           break;
         }
         case 'click': {
@@ -367,6 +397,7 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
           const n = ++settleCount;
           const still = `${flow.name}-${n}.png`;
           await hooks.beforeSettle?.({ flow: flow.name, beatIndex: index, selector: value, page });
+          await checkHidden(index); // before the still: a redaction that did not take must not reach a kept file
           await page.screenshot({ path: path.join(outDir, still) });
           settles.push({ index, still, t: round3(cap.nowT()) });
           pii.scanned++;
@@ -390,6 +421,7 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
         let failure;
         if (e instanceof FlowFailure) failure = e;
         else if (gate.violation) failure = originFailure(index); // the blocked request is what surfaced as this error
+        else if (pageGone) failure = goneFailure(index);
         else failure = classifyBeatError(e, flow.name, index, beat, beatTimeout);
         if (NO_FAILURE_SHOT.has(failure.kind)) return failure;
         const shot = `failure-${flow.name}-beat${index}.png`;
@@ -422,10 +454,19 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
     // and again after OCR (seconds later, with the scanner still running), before any footage is assembled.
     const finalCheck = async () => {
       const last = flow.beats.length - 1;
-      await drainPage();
-      const live = await scanDom(page, { redact }).catch(() => []);
-      const frame = frameLabel();
-      for (const h of live) pending.push({ frame, ...h, source: 'dom' });
+      try {
+        await drainPage();
+        const live = await scanDom(page, { redact });
+        const frame = frameLabel();
+        for (const h of live) pending.push({ frame, ...h, source: 'dom' });
+      } catch (e) {
+        // An unverified tail is not a clean one: fail closed, no footage.
+        if (pageGone) throw goneFailure(last);
+        throw new FlowFailure({
+          flow: flow.name, beatIndex: last, kind: 'pii',
+          message: `PII gate: the final check could not run (${String(e.message).split(/\r?\n/)[0]})`,
+        });
+      }
       checkGates(last);
     };
     await hooks.beforeFinalCheck?.({ flow: flow.name, page });

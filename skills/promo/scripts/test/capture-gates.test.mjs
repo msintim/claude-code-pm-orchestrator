@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { chromium } from 'playwright';
 import { resolveFfmpeg, parseCapabilities } from '../lib/ffmpeg.js';
 import { serveDirs } from '../lib/server.js';
 import { runCapture } from '../capture.mjs';
@@ -41,6 +42,11 @@ before(async () => {
       '/redirect': redirectTo(param),
       '/hop': redirectTo((req) => `/redirect?to=${encodeURIComponent(param(req))}`),
       '/old': redirectTo(() => '/sub/landing.html'),
+      // A staging CSP that forbids script-inserted styles: only stylesheets from the same origin may apply.
+      '/csp/pii.html': (req, res) => {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': "style-src 'self'" });
+        res.end(fs.readFileSync(path.join(fixtureSite, 'pii.html')));
+      },
       '/cookie-hop': (req, res) => { res.writeHead(302, { location: '/sub/landing.html', 'set-cookie': 'hopc=1; Path=/' }); res.end(); },
     },
   });
@@ -236,6 +242,26 @@ test('hide: selector containing the email removes it from both OCR and DOM scans
   equal(report.pii.hits.length, 0);
 });
 
+test('hide: still applies under a strict style-src CSP (the recorded context bypasses CSP)', { skip }, async () => {
+  const { r, report } = await runGate({
+    flow: 'csp-flow', hide: ['.secret-mail'], beats: [{ goto: '/csp/pii.html?v=secret-mail' }, { settle: 'h1' }],
+  });
+  equal(r.status, 0, r.stderr);
+  equal(report.pii.hits.length, 0);
+  ok(report.flows[0].hidden['.secret-mail'] >= 1);
+});
+
+test('hide: a selector that matches something still visible fails the flow closed, naming the selector', { skip }, async () => {
+  const { r, report, outDir } = await runGate({
+    flow: 'hide-flow', hide: ['.secret-mail'], beats: [{ goto: '/pii.html?v=unhideable' }, { settle: 'h1' }],
+  });
+  equal(r.status, 1, r.stderr);
+  match(r.stderr, /\.secret-mail/);
+  equal(report.status, 'failed');
+  equal(report.failed.kind, 'hide');
+  equal(webms(outDir).length, 0);
+});
+
 const loginCfg = (path_ = '/login.html') => ({
   path: path_, user_env: 'RPMS_DEMO_USER', pass_env: 'RPMS_DEMO_PASS', submit: '#submit', settled: '#app-home',
 });
@@ -281,11 +307,63 @@ test('login: a good login is not recorded and the session carries into the recor
 
 test('gate 1: a service worker cannot navigate to another origin behind the route (workers are blocked)', { skip }, async () => {
   const before = other.requestCount;
-  await runGate({
-    flow: 'origin-flow',
-    beats: [{ goto: `/sw.html?to=${encodeURIComponent(`${other.origin}/landed`)}` }, { click: '#go' }, { wait: 1000 }],
+  let swState = null;
+  const hooks = {
+    afterAction: async ({ beatIndex, page }) => {
+      if (beatIndex === 0) {
+        swState = await page.evaluate(async () => ({
+          regs: (await navigator.serviceWorker.getRegistrations()).length,
+          controlled: navigator.serviceWorker.controller !== null,
+          state: document.documentElement.dataset.sw ?? null,
+        }));
+      }
+    },
+  };
+  await runCapture({
+    configPath: writeConfig({
+      flow: 'origin-flow',
+      beats: [{ goto: `/sw.html?to=${encodeURIComponent(`${other.origin}/landed`)}` }, { click: '#go' }, { wait: 1000 }],
+    }),
+    outDir: tmpDir('out'), logger: { info() {}, error() {}, scrub: (s) => s }, hooks,
   });
+  deepEqual(swState && { regs: swState.regs, controlled: swState.controlled }, { regs: 0, controlled: false }, 'no worker may register or control the recorded page');
   equal(other.requestCount - before, 0, 'the worker must not reach the other origin');
+});
+
+test('gate 1 control: the same fixture does register and control the page when workers are allowed', { skip }, async () => {
+  const browser = await chromium.launch();
+  try {
+    const context = await browser.newContext({ serviceWorkers: 'allow' });
+    const page = await context.newPage();
+    await page.goto(`${site.origin}/sw.html?to=${encodeURIComponent(`${other.origin}/landed`)}`);
+    await page.waitForFunction(() => document.documentElement.dataset.sw === 'active', null, { timeout: 8000 });
+    ok(await page.evaluate(() => navigator.serviceWorker.controller !== null), 'the fixture worker controls the page');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('gate 3: a page that closes before the final check fails the run closed (no footage)', { skip }, async () => {
+  const hooks = { beforeFinalCheck: async ({ page }) => { await page.close(); } };
+  const outDir = tmpDir('out');
+  const rep = await runCapture({
+    configPath: writeConfig({ flow: 'gone-flow', beats: [{ goto: '/index.html' }] }),
+    outDir, logger: { info() {}, error() {}, scrub: (s) => s }, hooks,
+  });
+  equal(rep.status, 'failed');
+  equal(rep.failed.kind, 'pii');
+  match(rep.failed.message, /could not be verified|could not run/);
+  equal(webms(outDir).length, 0);
+});
+
+test('gate 3: PII matches are masked in the message and report.json (kind and frame stay)', { skip }, async () => {
+  const { r, report, outDir } = await runGate({
+    flow: 'mask-flow', beats: [{ goto: '/pii.html?v=scroll-email' }, { settle: '#ready' }],
+  });
+  equal(r.status, 1, r.stderr);
+  ok(!r.stderr.includes('jane.doe'), r.stderr);
+  ok(report.pii.hits.some((h) => h.kind === 'email' && h.frame === 'mask-flow-1.png' && !h.match.includes('jane')));
+  for (const f of walk(outDir)) if (f.endsWith('.json')) ok(!fs.readFileSync(f, 'utf8').includes('jane.doe'), f);
 });
 
 test('gate 3: PII that appears after the last beat has been checked still fails the run', { skip }, async () => {

@@ -32,6 +32,9 @@
     html('<p>Owner: Sintim Holdings</p>');
   } else if (v === 'spaced') {
     html('<p class="spaced" style="font-size:56px"></p>');
+  } else if (v === 'unhideable') {
+    // An inline !important beats the stylesheet rule hide: installs, so the match stays visible.
+    html('<p class="secret-mail" style="display:block !important">jane.doe@example.com</p>');
   } else if (v === 'secret-mail') {
     html('<p class="secret-mail">jane.doe@example.com</p><p>Clean</p>');
   }

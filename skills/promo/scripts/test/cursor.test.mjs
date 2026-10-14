@@ -69,9 +69,9 @@ test('in-page cursor follows moveTo and ripple disappears', async () => {
     assert.ok(Math.abs(box.y + box.height / 2 - 100) <= 2);
 
     await page.evaluate(() => window.__promoCursor.click(100, 100));
-    assert.equal(await page.locator('.ripple').count(), 1);
+    assert.equal(await page.locator('.__promo-ripple').count(), 1);
     await page.waitForTimeout(600);
-    assert.equal(await page.locator('.ripple').count(), 0);
+    assert.equal(await page.locator('.__promo-ripple').count(), 0);
   } finally {
     await browser.close();
   }

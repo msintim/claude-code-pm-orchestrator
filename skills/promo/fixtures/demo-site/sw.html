@@ -17,7 +17,8 @@
       await navigator.serviceWorker.register('/sw.js?to=' + encodeURIComponent(to));
       await navigator.serviceWorker.ready;
       if (!navigator.serviceWorker.controller) await new Promise((r) => navigator.serviceWorker.addEventListener('controllerchange', r));
-    } catch { /* blocked */ }
+      document.documentElement.dataset.sw = 'active';
+    } catch (e) { document.documentElement.dataset.sw = `blocked:${e.name}`; /* blocked */ }
     show();
   })();
 </script>

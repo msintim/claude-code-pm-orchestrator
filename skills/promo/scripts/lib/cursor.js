@@ -51,7 +51,7 @@ export const CURSOR_INIT_SCRIPT = `(() => {
         '#__promo-cursor{position:fixed;left:0;top:0;width:' + SIZE + 'px;height:' + SIZE + 'px;margin:0;' +
         'pointer-events:none;z-index:2147483647;box-sizing:border-box;border-radius:50%;' +
         'background:rgba(255,255,255,.55);border:3px solid #111;box-shadow:0 2px 8px rgba(0,0,0,.45);opacity:0}' +
-        '.ripple{position:fixed;width:' + SIZE + 'px;height:' + SIZE + 'px;margin:0;border-radius:50%;' +
+        '.__promo-ripple{position:fixed;width:' + SIZE + 'px;height:' + SIZE + 'px;margin:0;border-radius:50%;' +
         'pointer-events:none;z-index:2147483646;border:3px solid rgba(60,130,255,.9);' +
         'background:rgba(60,130,255,.25);animation:__promo-ripple 500ms ease-out forwards}' +
         '@keyframes __promo-ripple{from{transform:translate(var(--x),var(--y)) scale(.4);opacity:1}' +
@@ -79,7 +79,7 @@ export const CURSOR_INIT_SCRIPT = `(() => {
       const root = document.documentElement;
       if (!root) return;
       const r = document.createElement('div');
-      r.className = 'ripple';
+      r.className = '__promo-ripple';
       r.style.setProperty('--x', (cx - SIZE / 2) + 'px');
       r.style.setProperty('--y', (cy - SIZE / 2) + 'px');
       r.style.left = '0';
