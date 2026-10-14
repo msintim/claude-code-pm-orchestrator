@@ -124,6 +124,14 @@ export async function ffprobeJson(ffprobe, file) {
 
 let memo = null;
 
+/** ffmpeg is missing or unusable. The CLI entry point maps this to exit 2; the library never exits. */
+export class FfmpegUnavailableError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'FfmpegUnavailableError';
+  }
+}
+
 export function requireFfmpeg() {
   memo ??= (async () => {
     try {
@@ -132,8 +140,7 @@ export function requireFfmpeg() {
       if (!caps.ok) throw new Error(`${bins.ffmpeg} lacks: ${caps.missing.join(', ')}. ${INSTALL_HINT}`);
       return bins;
     } catch (e) {
-      console.error(e instanceof FfmpegNotFoundError ? e.message : `ffmpeg check failed: ${e.message.split('\n')[0]}`);
-      process.exit(2);
+      throw new FfmpegUnavailableError(e instanceof FfmpegNotFoundError ? e.message : `ffmpeg check failed: ${e.message.split('\n')[0]}`);
     }
   })();
   return memo;

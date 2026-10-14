@@ -64,7 +64,7 @@ test('happy path', { skip }, async (t) => {
     equal(rep.source.fps, 60);
     equal(rep.stagingOrigin, server.origin);
     equal(rep.piiPolicy, 'demo-tenant-only');
-    deepEqual(rep.pii, { scanned: 0, hits: [] });
+    deepEqual(rep.pii, { scanned: 2, hits: [] }); // one settle still per flow, each scanned by DOM and OCR
     deepEqual(rep.thirdPartyRequests, []);
     ok(!fs.readdirSync(outDir).some((n) => n.startsWith('.frames')), 'frame dirs are deleted');
   });
@@ -140,7 +140,7 @@ test('invalid yaml exits 1 before any output dir is created and prints the field
 test('stale selector: exit 3, stderr names flow + beat index + selector, failure screenshot, report.failed', { skip }, async () => {
   const outDir = tmpDir('out');
   const cfg = configWith('click: "text=Save tenant"', "click: '#does-not-exist'");
-  const r = await runCliAsync(captureScript, ['--config', cfg, '--out', outDir], { PROMO_BEAT_TIMEOUT_MS: '1500' });
+  const r = await runCliAsync(captureScript, ['--config', cfg, '--out', outDir], { PROMO_BEAT_TIMEOUT_MS: '4000' }); // generous: the goto before the stale click must not time out when test files run in parallel
   equal(r.status, 3, r.stderr);
   match(r.stderr, /tenant-onboarding.*beat 2.*#does-not-exist/s);
   ok(fs.existsSync(path.join(outDir, 'failure-tenant-onboarding-beat2.png')));
@@ -243,6 +243,12 @@ test('createLogger scrubs secrets from everything written', () => {
   const log = createLogger({ secrets: ['hunter2', ''] });
   equal(log.scrub('pw=hunter2 and hunter2'), 'pw=*** and ***');
   equal(log.scrub('nothing here'), 'nothing here');
+});
+
+test('createLogger scrubs the longest secret first so a shorter prefix cannot leak the tail', () => {
+  const log = createLogger({ secrets: ['abc', 'abcdef'] });
+  equal(log.scrub('pw=abcdef'), 'pw=***');
+  equal(createLogger({ secrets: ['abcdef', 'abc'] }).scrub('pw=abcdef abc'), 'pw=*** ***');
 });
 
 test('serveDirs serves mounts, 404s traversal and honours handlers', async () => {

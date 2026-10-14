@@ -8,8 +8,10 @@ import { chromium } from 'playwright';
 import { loadPromoConfig, stagingOrigin, ValidationError } from './lib/schema.js';
 import { CURSOR_INIT_SCRIPT, HOLD_MS, MOVE_MS, PAUSE_MS, cursorPath, mulberry32, typingDelays } from './lib/cursor.js';
 import { assembleWebm, medianFps, startFrameCapture } from './lib/screencast.js';
-import { ffprobeJson, requireFfmpeg } from './lib/ffmpeg.js';
+import { FfmpegUnavailableError, ffprobeJson, requireFfmpeg } from './lib/ffmpeg.js';
 import { createLogger } from './lib/log.js';
+import { CHROMIUM_ARGS, installOriginGate } from './lib/origin-gate.js';
+import { PAGE_SCANNER_SCRIPT, PATTERN_SOURCES, createOcr, scanDom } from './lib/pii.js';
 
 export const VIEWPORT = { w: 1920, h: 1080 };
 export const DEVICE_SCALE_FACTOR = 2;
@@ -37,17 +39,36 @@ function seedFromName(name) {
 function hideInitScript(selectors) {
   return `(() => {
   const css = ${JSON.stringify(selectors)}.map((s) => s + '{display:none !important}').join('\\n');
+  // An init script can run before <html> exists, so the style may have nowhere to go yet.
   const add = () => {
-    if (document.getElementById('__promo-hide')) return;
+    if (document.getElementById('__promo-hide')) return true;
+    const root = document.head || document.documentElement;
+    if (!root) return false;
     const st = document.createElement('style');
     st.id = '__promo-hide';
     st.textContent = css;
-    (document.head || document.documentElement).appendChild(st);
+    root.appendChild(st);
+    return true;
   };
-  add();
+  if (!add()) {
+    const mo = new MutationObserver(() => { if (add()) mo.disconnect(); });
+    mo.observe(document, { childList: true, subtree: true });
+  }
   document.addEventListener('DOMContentLoaded', add);
 })();`;
 }
+
+// Copies hits the in-page scanner found into the Node side (the page's own array dies with the document).
+const PII_RELAY = `(() => {
+  setInterval(() => {
+    const h = window.__promoPiiHits;
+    if (h && h.length && window.__promoPiiReport) Promise.resolve(window.__promoPiiReport(h.splice(0))).catch(() => {});
+  }, 50);
+})();`;
+
+// Failures that must not leave extra screenshots behind: the offending still already exists, or the page holds credentials.
+const NO_FAILURE_SHOT = new Set(['pii', 'login']);
+const GATE_KINDS = new Set(['origin', 'pii', 'login']);
 
 /** A beat that could not run: carries what report.failed needs. */
 class FlowFailure extends Error {
@@ -57,6 +78,37 @@ class FlowFailure extends Error {
     this.beatIndex = beatIndex;
     this.kind = kind;
     this.screenshot = null;
+  }
+}
+
+// Logs in inside a throwaway context: the login page is never recorded and only the resulting session
+// (cookies/localStorage, in memory) reaches the recorded context. The password goes into the page and nowhere else.
+async function performLogin({ browser, flow, config, origin, env, beatTimeout, scrub }) {
+  const { login } = config.staging;
+  const gate = { violation: null };
+  const context = await browser.newContext();
+  let page;
+  try {
+    await installOriginGate(context, { origin, gate, mainPage: () => page });
+    page = await context.newPage();
+    const failure = (kind, message) => new FlowFailure({ flow: flow.name, beatIndex: null, kind, message });
+    const blocked = () => failure('origin', `flow ${flow.name} login: blocked navigation to ${gate.violation.origin}`);
+    try {
+      await page.goto(new URL(login.path, config.staging.url).href, { waitUntil: 'load', timeout: beatTimeout });
+      await page.locator('input[type=password]').first().fill(env[login.pass_env], { timeout: beatTimeout });
+      await page.locator('input:not([type=password]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio])')
+        .first().fill(env[login.user_env], { timeout: beatTimeout });
+      await page.locator(login.submit).first().click({ timeout: beatTimeout });
+      await page.locator(login.settled).first().waitFor({ state: 'visible', timeout: beatTimeout });
+    } catch (e) {
+      if (gate.violation) throw blocked();
+      const first = String(e.message).split(/\r?\n/)[0];
+      throw failure('login', scrub(`flow "${flow.name}" login failed (${login.settled} not reached; wrong credentials?): ${first}`));
+    }
+    if (gate.violation) throw blocked();
+    return await context.storageState();
+  } finally {
+    await within(context.close(), 5000);
   }
 }
 
@@ -83,21 +135,69 @@ function selectorOf(beat) {
   return typeof v === 'string' ? v : v?.selector;
 }
 
-async function runFlow({ browser, flow, config, origin, outDir, bins, env, logger, hooks, tally }) {
+async function runFlow({ browser, flow, config, origin, outDir, bins, env, logger, hooks, tally, ocr, pii, scrub }) {
   const beatTimeout = Number(env.PROMO_BEAT_TIMEOUT_MS ?? 10000);
   const idleTimeout = Number(env.PROMO_IDLE_TIMEOUT_MS ?? 10000);
   const hide = config.hide ?? [];
+  const redact = config.redact ?? [];
   const frameDir = path.join(outDir, `.frames-${flow.name}`);
+  const storageState = config.staging.login ? await performLogin({ browser, flow, config, origin, env, beatTimeout, scrub }) : undefined;
   const context = await browser.newContext({
     viewport: { width: VIEWPORT.w, height: VIEWPORT.h },
     deviceScaleFactor: DEVICE_SCALE_FACTOR,
     reducedMotion: 'no-preference',
+    storageState,
   });
   let cap;
   try {
+    let page;
+    const gate = { violation: null };
+    const pending = []; // PII the in-page scanner saw on screen between settles
+    const frameLabel = () => `${flow.name}@${round3(cap?.nowT() ?? 0)}s`;
+    await installOriginGate(context, { origin, gate, mainPage: () => page });
+    await context.exposeFunction('__promoPiiReport', (hits) => {
+      const frame = frameLabel();
+      for (const h of hits) pending.push({ frame, kind: h.kind, match: h.match, source: 'dom' });
+    });
     await context.addInitScript(CURSOR_INIT_SCRIPT);
+    await context.addInitScript(PAGE_SCANNER_SCRIPT(PATTERN_SOURCES, redact));
+    await context.addInitScript(PII_RELAY);
     if (hide.length) await context.addInitScript(hideInitScript(hide));
-    const page = await context.newPage();
+    page = await context.newPage();
+
+    const visited = [];
+    page.on('framenavigated', (frame) => {
+      if (frame !== page.mainFrame()) return;
+      try {
+        const u = new URL(frame.url());
+        if ((u.protocol === 'http:' || u.protocol === 'https:') && visited.at(-1) !== u.pathname) visited.push(u.pathname);
+      } catch { /* about:blank and friends */ }
+    });
+
+    const originFailure = (index) => new FlowFailure({
+      flow: flow.name, beatIndex: index, kind: 'origin',
+      message: `flow ${flow.name} beat ${index}: blocked navigation to ${gate.violation.origin}`,
+    });
+    // Hits found on a still, plus any transient ones queued so far, fail the run; every one is kept in report.pii.
+    const piiFailure = (index, found) => {
+      const all = [...found, ...pending.splice(0)];
+      pii.hits.push(...all);
+      const h = all[0];
+      return new FlowFailure({
+        flow: flow.name, beatIndex: index, kind: 'pii',
+        message: `PII gate: ${h.frame} contains ${h.kind} "${h.match}" (${h.source})`,
+      });
+    };
+    const checkGates = (index) => {
+      if (gate.violation) throw originFailure(index);
+      if (pending.length) throw piiFailure(index, []);
+    };
+    // The relay polls every 50 ms; this picks up whatever it has not shipped yet.
+    const drainPage = async () => {
+      const hits = await page.evaluate(() => window.__promoPiiHits?.splice(0) ?? []).catch(() => []);
+      const frame = frameLabel();
+      for (const h of hits) pending.push({ frame, kind: h.kind, match: h.match, source: 'dom' });
+    };
 
     // Network activity, for the idle wait and the third-party tally.
     const inflight = new Set();
@@ -267,6 +367,9 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
           await hooks.beforeSettle?.({ flow: flow.name, beatIndex: index, selector: value, page });
           await page.screenshot({ path: path.join(outDir, still) });
           settles.push({ index, still, t: round3(cap.nowT()) });
+          pii.scanned++;
+          const domHits = await scanDom(page, { redact });
+          if (domHits.length) throw piiFailure(index, domHits.map((h) => ({ frame: still, ...h, source: 'dom' })));
           break;
         }
         default:
@@ -279,26 +382,45 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
       const beat = flow.beats[index];
       const t0 = cap.nowT();
       let kind;
-      try {
-        kind = await act(beat, index);
-      } catch (e) {
-        if (e instanceof EnvironmentError) throw e;
-        const failure = e instanceof FlowFailure ? e : classifyBeatError(e, flow.name, index, beat, beatTimeout);
+      const fail = async (e) => {
+        if (e instanceof EnvironmentError) return e;
+        let failure;
+        if (e instanceof FlowFailure) failure = e;
+        else if (gate.violation) failure = originFailure(index); // the blocked request is what surfaced as this error
+        else failure = classifyBeatError(e, flow.name, index, beat, beatTimeout);
+        if (NO_FAILURE_SHOT.has(failure.kind)) return failure;
         const shot = `failure-${flow.name}-beat${index}.png`;
         // A hung navigation blocks screenshots; cancel it first (the shot is then blank, but still marks the failure), and never wait long on a failure artifact.
         if (failure.kind === 'navigation') await within(page.goto('about:blank', { timeout: 2000 }), 3000);
         await page.screenshot({ path: path.join(outDir, shot), timeout: 5000 }).then(() => { failure.screenshot = shot; }, () => {});
-        throw failure;
+        return failure;
+      };
+      try {
+        kind = await act(beat, index);
+        checkGates(index);
+      } catch (e) {
+        throw await fail(e);
       }
       await restoreCursor();
       await hooks.afterAction?.({ flow: flow.name, beatIndex: index, page });
       const networkIdle = await waitIdle();
       await restoreCursor(); // a navigation that began late (click) is caught here, still before the hold
       await sleep(HOLD_MS);
+      try {
+        await drainPage();
+        checkGates(index);
+      } catch (e) {
+        throw await fail(e);
+      }
       beats.push({ index, kind, t0: round3(t0), t1: round3(cap.nowT()), networkIdle });
     }
 
     const { frames } = await cap.stop();
+    // OCR runs after recording so it cannot stretch a beat; a hit means the footage is never assembled.
+    for (const s of settles) {
+      const hits = await ocr.scan(path.join(outDir, s.still), { redact });
+      if (hits.length) throw piiFailure(s.index, hits.map((h) => ({ frame: s.still, ...h, source: 'ocr' })));
+    }
     const endT = beats.at(-1).t1;
     const video = `${flow.name}.webm`;
     const out = path.join(outDir, video);
@@ -311,6 +433,7 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
       durationSec: endT,
       screencast: { frames: frames.length, medianFps: medianFps(frames) },
       hidden,
+      visited,
       beats,
       settles,
     };
@@ -322,14 +445,28 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
 }
 
 export async function runCapture({ configPath, outDir, feature, env = process.env, logger = createLogger(), hooks = {} }) {
-  const config = await loadPromoConfig(configPath);
+  const config = await loadPromoConfig(configPath); // pii_policy is required by the schema: no policy, no run
   const origin = stagingOrigin(config.staging.url);
   const flows = feature ? config.flows.filter((f) => f.feature === feature) : config.flows;
   if (feature && flows.length === 0) {
     const known = [...new Set(config.flows.map((f) => f.feature).filter(Boolean))];
     throw new UsageError(`unknown feature "${feature}"; features in ${configPath}: ${known.join(', ') || '(none)'}`);
   }
-  const bins = await requireFfmpeg();
+  // Credentials are checked (by variable name only) before anything is created or launched.
+  const login = config.staging.login;
+  if (login) {
+    const missing = [login.user_env, login.pass_env].filter((name) => !env[name]);
+    if (missing.length) throw new UsageError(`staging.login needs environment variable(s) ${missing.join(', ')} to be set and non-empty`);
+  }
+  const secretScrub = createLogger({ secrets: login ? [env[login.pass_env]] : [] }).scrub;
+  const scrub = (s) => secretScrub(logger.scrub?.(s) ?? s);
+  let bins;
+  try {
+    bins = await requireFfmpeg();
+  } catch (e) {
+    if (e instanceof FfmpegUnavailableError) throw new EnvironmentError(e.message);
+    throw e;
+  }
   fs.mkdirSync(outDir, { recursive: true });
 
   const report = {
@@ -351,20 +488,31 @@ export async function runCapture({ configPath, outDir, feature, env = process.en
   const tally = new Map();
 
   let browser;
+  let ocr;
   try {
     try {
-      browser = await chromium.launch();
+      ocr = await createOcr();
+    } catch (e) {
+      throw new EnvironmentError(`cannot start OCR: ${e.message.split('\n')[0]}`);
+    }
+    try {
+      browser = await chromium.launch({ args: CHROMIUM_ARGS });
     } catch (e) {
       throw new EnvironmentError(`cannot launch Chromium: ${e.message.split('\n')[0]} (run: npx playwright install chromium)`);
     }
     for (const flow of flows) {
       let result;
       try {
-        result = await runFlow({ browser, flow, config, origin, outDir, bins, env, logger, hooks, tally });
+        result = await runFlow({ browser, flow, config, origin, outDir, bins, env, logger, hooks, tally, ocr, pii: report.pii, scrub });
       } catch (e) {
         if (!(e instanceof FlowFailure)) throw e;
         report.status = 'failed';
-        report.failed = { flow: e.flow, beatIndex: e.beatIndex, kind: e.kind, message: e.message, ...(e.screenshot && { screenshot: e.screenshot }) };
+        report.failed = { flow: e.flow, beatIndex: e.beatIndex, kind: e.kind, message: scrub(e.message), ...(e.screenshot && { screenshot: e.screenshot }) };
+        if (GATE_KINDS.has(e.kind)) {
+          // A gated run ships no footage: drop every video this run assembled. report.json and the offending still stay.
+          for (const f of report.flows) fs.rmSync(path.join(outDir, f.video), { force: true });
+          report.flows = report.flows.map(({ video, ...rest }) => rest);
+        }
         break;
       }
       const entry = result;
@@ -375,8 +523,12 @@ export async function runCapture({ configPath, outDir, feature, env = process.en
       }
       report.flows.push(entry);
     }
+  } catch (e) {
+    if (e instanceof Error) e.message = scrub(e.message); // a Playwright message may quote what it was typing
+    throw e;
   } finally {
     await browser?.close().catch(() => {});
+    await ocr?.close().catch(() => {});
   }
   report.thirdPartyRequests = [...tally].map(([o, count]) => ({ origin: o, count })).sort((a, b) => b.count - a.count);
   fs.writeFileSync(path.join(outDir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`);
