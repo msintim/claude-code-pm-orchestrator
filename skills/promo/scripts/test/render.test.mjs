@@ -191,6 +191,35 @@ test('two renders of the same scenes have identical frameSequenceSha256', async 
   assert.equal(second.report.frameSequenceSha256, first.report.frameSequenceSha256);
 });
 
+test('music null -> no audio stream; music set -> one aac stream with duration == video +/- 0.05; cueAlignment filled', async () => {
+  const musicDir = tmpDir('render-music');
+  await run(bins.ffmpeg, ['-hide_banner', '-y', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=2:sample_rate=48000', path.join(musicDir, 'tone.wav')]);
+  fs.copyFileSync(path.join(scriptsDir, 'test', 'fixtures', 'valid.cues.json'), path.join(musicDir, 'tone.cues.json'));
+
+  const { dir, report } = await doRender('music', { music: { track: 'tone', gain_db: -10, musicDir } });
+  const probe = await ffprobeJson(bins.ffprobe, path.join(dir, 'master-16x9.mp4'));
+  const audio = probe.streams.filter((s) => s.codec_type === 'audio');
+  const video = probe.streams.find((s) => s.codec_type === 'video');
+  assert.equal(audio.length, 1);
+  assert.equal(audio[0].codec_name, 'aac');
+  assert.ok(Math.abs(Number(audio[0].duration) - Number(video.duration)) <= 0.05, `audio ${audio[0].duration} vs video ${video.duration}`);
+  assert.ok(Math.abs(Number(probe.format.duration) - report.frames / 30) <= 0.05);
+
+  assert.equal(report.audio.track, 'tone');
+  assert.equal(report.audio.gainDb, -10);
+  assert.equal(report.audio.duckDb, -6, 'duck_db defaults to -6 dB');
+  assert.deepEqual(report.cueAlignment.map((a) => a.t), [1, 2], 'one entry per interior scene boundary');
+  assert.equal(report.cueAlignment[0].nearest, 0.5);
+  assert.equal(report.cueAlignment[0].within, false);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'render-report.json'), 'utf8')), report);
+  assert.equal(first.report.frameSequenceSha256, report.frameSequenceSha256, 'music does not change the frames');
+});
+
+test('an unknown music track is refused before any frame is rendered, naming the file', async () => {
+  const musicDir = tmpDir('render-music-empty');
+  await assert.rejects(doRender('music-missing', { music: { track: 'ghost', musicDir } }), /ghost\.mp3/);
+});
+
 // CLI refusals.
 const goodScenes = () => JSON.parse(fs.readFileSync(path.join(scriptsDir, 'test', 'fixtures', 'valid-scenes.json'), 'utf8'));
 function cliEnv(flowName = 'rent-collection', { status = 'ok', webm = true } = {}) {

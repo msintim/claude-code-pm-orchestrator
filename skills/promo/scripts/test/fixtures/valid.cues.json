@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "source": { "filename": "upbeat-clean-01.mp3", "trackStem": "upbeat-clean-01" },
+  "duration": 30.0,
+  "tempo": 120,
+  "beats": [0.5, 1.0, 1.5, 2.0, 2.5, 3.0],
+  "strongCues": [
+    { "time": 0.5, "intensity": 0.9, "kind": "downbeat" },
+    { "time": 2.5, "intensity": 0.7, "kind": "accent" },
+    { "time": 8.0 }
+  ],
+  "analysis": { "tool": "example", "note": "extra keys are allowed" }
+}

@@ -8,6 +8,10 @@ import { serveDirs } from './server.js';
 import { run } from './ffmpeg.js';
 import { buildTimeline, stillTimes, at } from './timeline.js';
 import { checkLayout } from './layout-check.js';
+import {
+  DEFAULT_DUCK_DB, DEFAULT_GAIN_DB, buildAudioFilter, duckIntervals,
+} from './audio.js';
+import { alignmentReport, loadCues, resolveTrack } from './cues.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(here, '..', '..', 'templates');
@@ -140,20 +144,45 @@ export async function makeContactSheet({ ffmpeg, files, out, cols = 3, thumbWidt
   await run(ffmpeg, ['-hide_banner', '-y', ...inputs, '-filter_complex', graph, '-frames:v', '1', out]);
 }
 
-async function encode({ ffmpeg, framesDir, out, codecArgs }) {
-  await run(ffmpeg, ['-hide_banner', '-y', '-framerate', String(FPS), '-i', path.join(framesDir, '%05d.png'), ...codecArgs, out]);
+async function encode({ ffmpeg, framesDir, out, codecArgs, audioArgs = [] }) {
+  await run(ffmpeg, ['-hide_banner', '-y', '-framerate', String(FPS), '-i', path.join(framesDir, '%05d.png'), ...audioArgs, ...codecArgs, out]);
+}
+
+/**
+ * Resolve the music track and plan its mix before any frame is rendered, so a missing track or a bad
+ * cues file fails fast. `music` is the scenes.json block ({ track, gain_db?, duck_db? }) plus an optional
+ * `musicDir` override. The track loops (-stream_loop) when shorter than the video; -t cuts it at the end.
+ */
+async function planAudio(music, timeline, scenes) {
+  const { audio, cues: cuesFile } = resolveTrack(music.track, { musicDir: music.musicDir });
+  const cues = await loadCues(cuesFile);
+  const gainDb = music.gain_db ?? DEFAULT_GAIN_DB;
+  const duckDb = music.duck_db ?? DEFAULT_DUCK_DB;
+  const intervals = duckIntervals(timeline, scenes);
+  const filter = buildAudioFilter({ gainDb, duckDb, intervals, total: timeline.total });
+  const boundaries = timeline.scenes.slice(0, -1).map((s) => s.end);
+  return {
+    args: [
+      '-stream_loop', '-1', '-i', audio,
+      '-filter_complex', `[1:a]${filter}[a]`, '-map', '0:v', '-map', '[a]',
+      '-c:a', 'aac', '-b:a', '192k', '-shortest', '-t', String(timeline.total),
+    ],
+    report: { track: music.track, gainDb, duckDb, tempo: cues.tempo, duckIntervals: intervals },
+    alignment: alignmentReport(boundaries, cues),
+  };
 }
 
 /**
  * Render every frame of the master through the compositor and encode it. `doc` is a parsed scenes.json
  * ({ brand, scenes }). Frames are a pure function of the frame index, and frameSequenceSha256 hashes the
- * PNG bytes in order, so identical inputs give an identical sequence.
+ * PNG bytes in order, so identical inputs give an identical sequence. `music` (null for a silent master)
+ * is described on planAudio.
  */
 export async function renderVideo({ scenes: doc, size, captureDir, outFile, workDir, ffmpeg, music = null, webm = false, keepFrames = false }) {
-  if (music) throw new Error('renderVideo: music is not supported yet');
   const { scenes, brand } = doc;
   assertFootageFiles(scenes, captureDir);
   const timeline = buildTimeline(scenes, FPS);
+  let audio = null;
   const framesDir = path.join(workDir, 'frames');
   fs.rmSync(framesDir, { recursive: true, force: true });
   fs.mkdirSync(framesDir, { recursive: true });
@@ -163,6 +192,8 @@ export async function renderVideo({ scenes: doc, size, captureDir, outFile, work
   const layoutIssues = [];
   const c = await openCompositor({ scenes, brand, size, captureDir });
   try {
+    // After the font check (openCompositor) and before any frame: a bad track or cues file fails fast.
+    if (music) audio = await planAudio(music, timeline, scenes);
     // Template scenes are layout-checked once, at the frame nearest their midpoint, when no transition covers it.
     const checkAt = new Map();
     timeline.scenes.forEach((s, index) => {
@@ -186,6 +217,7 @@ export async function renderVideo({ scenes: doc, size, captureDir, outFile, work
     await encode({
       ffmpeg, framesDir, out: outFile,
       codecArgs: ['-c:v', ENCODE.codec, '-crf', String(ENCODE.crf), '-preset', ENCODE.preset, '-pix_fmt', ENCODE.pix_fmt, '-movflags', ENCODE.movflags],
+      audioArgs: audio?.args,
     });
     if (webm) {
       await encode({
@@ -204,8 +236,8 @@ export async function renderVideo({ scenes: doc, size, captureDir, outFile, work
     frames: timeline.frameCount,
     frameSequenceSha256: hash.digest('hex'),
     encode: { ...ENCODE },
-    audio: null,
-    cueAlignment: [],
+    audio: audio?.report ?? null,
+    cueAlignment: audio?.alignment ?? [],
     layoutIssues,
   };
   fs.writeFileSync(path.join(path.dirname(outFile), 'render-report.json'), `${JSON.stringify(report, null, 2)}\n`);

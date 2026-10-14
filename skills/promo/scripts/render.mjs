@@ -48,7 +48,6 @@ async function main(argv) {
       },
     });
     if (!values.scenes || !values.out || !values.capture) throw new UsageError(USAGE);
-    if (values['music-dir']) throw new UsageError('--music-dir is not supported yet');
 
     const flowDurations = readCaptureDurations(values.capture);
     const doc = await loadScenes(values.scenes, { flowDurations });
@@ -73,6 +72,7 @@ async function main(argv) {
     const report = await renderVideo({
       scenes: doc, size, captureDir: values.capture, outFile, workDir: path.join(values.out, 'work'),
       ffmpeg, ffprobe, webm: values.webm, keepFrames: values['keep-frames'],
+      music: doc.music ? { ...doc.music, musicDir: values['music-dir'] } : null,
     });
     logger.info(`rendered ${report.frames} frames at ${size.w}x${size.h} -> ${outFile}`);
     for (const i of report.layoutIssues) logger.error(`layout ${i.kind} in scene ${i.scene + 1} field "${i.field}": ${i.detail}`);
