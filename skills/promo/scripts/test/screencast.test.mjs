@@ -68,16 +68,17 @@ test('buildConcatList gives per-frame durations and repeats the last file', () =
 });
 
 test('buildWebmArgs encodes 60 fps CFR VP9 via the concat demuxer', () => {
-  const args = buildWebmArgs({ list: 'l.txt', out: 'o.webm' });
+  const args = buildWebmArgs({ list: 'l.txt', out: 'o.webm', endT: 1.5 });
   const has = (...seq) => args.join(' ').includes(seq.join(' '));
   assert.ok(has('-f', 'concat', '-safe', '0', '-i', 'l.txt'));
   assert.ok(args.includes('fps=60'));
   assert.ok(has('-c:v', 'libvpx-vp9'));
+  assert.ok(has('-t', '1.5'));
   assert.ok(has('-crf', '12'));
   assert.ok(has('-b:v', '0'));
   assert.ok(has('-pix_fmt', 'yuv420p'));
   assert.equal(args.at(-1), 'o.webm');
-  assert.ok(buildWebmArgs({ list: 'l', out: 'o', fps: 30, crf: 20 }).includes('fps=30'));
+  assert.ok(buildWebmArgs({ list: 'l', out: 'o', endT: 1, fps: 30, crf: 20 }).includes('fps=30'));
 });
 
 test('startFrameCapture writes frames, timestamps on a Node clock, and awaits writes on stop', async () => {
@@ -145,6 +146,39 @@ test('assembleWebm yields 60 fps CFR VP9 of the right length', { skip: fullFfmpe
     ]);
     const count = Number(JSON.parse(counted.stdout).streams[0].nb_read_frames);
     assert.ok(Math.abs(count - 90) <= 1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assembleWebm honours endT for uneven frame times', { skip: fullFfmpeg === null }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'promo-asm-'));
+  try {
+    const colors = ['red', 'green', 'blue'];
+    const times = [0, 0.1, 0.35];
+    const frames = [];
+    for (let i = 0; i < 3; i++) {
+      const file = path.join(dir, `f${i}.jpg`);
+      await run(fullFfmpeg.ffmpeg, [
+        '-y', '-f', 'lavfi', '-i', `color=c=${colors[i]}:s=320x180`, '-frames:v', '1', file,
+      ]);
+      frames.push({ file, t: times[i] });
+    }
+    const out = path.join(dir, 'out.webm');
+    await assembleWebm({ ffmpeg: fullFfmpeg.ffmpeg, frames, endT: 0.5, out });
+    const probe = await ffprobeJson(fullFfmpeg.ffprobe, out);
+    const v = probe.streams.find((s) => s.codec_type === 'video');
+    assert.equal(v.codec_name, 'vp9');
+    assert.equal(v.r_frame_rate, '60/1');
+    assert.equal(v.pix_fmt, 'yuv420p');
+    assert.ok(Math.abs(Number(probe.format.duration) - 0.5) < 0.03);
+    // Matroska/WebM carries no frame count in the header, so decode-count it.
+    const counted = await run(fullFfmpeg.ffprobe, [
+      '-v', 'error', '-count_frames', '-select_streams', 'v:0',
+      '-show_entries', 'stream=nb_read_frames', '-of', 'json', out,
+    ]);
+    const count = Number(JSON.parse(counted.stdout).streams[0].nb_read_frames);
+    assert.ok(Math.abs(count - 30) <= 1);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

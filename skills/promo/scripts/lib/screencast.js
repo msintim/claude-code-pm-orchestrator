@@ -61,11 +61,13 @@ export function buildConcatList(frames, endT) {
   return `${lines.join('\n')}\n`;
 }
 
-export function buildWebmArgs({ list, out, fps = 60, crf = 12 }) {
+export function buildWebmArgs({ list, out, endT, fps = 60, crf = 12 }) {
   return [
     '-y', '-hide_banner', '-loglevel', 'error',
     '-f', 'concat', '-safe', '0', '-i', list,
     '-vf', `fps=${fps}`,
+    // The repeated last concat entry has no duration of its own and adds a stray tail; cap at endT.
+    '-t', String(endT),
     '-c:v', 'libvpx-vp9', '-crf', String(crf), '-b:v', '0', '-pix_fmt', 'yuv420p',
     out,
   ];
@@ -77,7 +79,7 @@ export async function assembleWebm({ ffmpeg, frames, endT, fps = 60, out, crf = 
   const list = `${out}.concat.txt`;
   fs.writeFileSync(list, buildConcatList(frames, endT));
   try {
-    await run(ffmpeg, buildWebmArgs({ list, out, fps, crf }));
+    await run(ffmpeg, buildWebmArgs({ list, out, endT, fps, crf }));
   } finally {
     fs.rmSync(list, { force: true });
   }
