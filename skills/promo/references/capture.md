@@ -1,10 +1,10 @@
 # Capture: the yaml, the beats, the gates
 
 ```
-node scripts/capture.mjs --config .promo/promo.yaml --out RUN/capture [--feature <tag>]
+node SKILL/scripts/capture.mjs --config .promo/promo.yaml --out RUN/capture [--feature <tag>]
 ```
 
-Output in `RUN/capture/`: one `<flow>.webm` per flow (1920x1080), a `<flow>-<n>.png` still at every `settle`, and `report.json` (per-flow beat timestamps, stills, durations, PII scan result, `blockedNavigations`, and `failed` on a failed run). Exit codes: 0 ok, 1 validation or gate (kinds `pii`, `origin`, `login`), 2 environment, 3 flow failure (kinds `selector`, `navigation`).
+Output in `RUN/capture/`: one `<flow>.webm` per flow (1920x1080), a `<flow>-<n>.png` still at every `settle`, and `report.json` (per-flow beat timestamps, stills, durations, PII scan result, `blockedNavigations`, and `failed` on a failed run). Exit codes: 0 ok, 1 validation or gate (kinds `pii`, `origin`, `login`, `hide`), 2 environment (FFmpeg, Chromium or the OCR data missing), 3 flow failure (kinds `selector`, `navigation`).
 
 ## The config: `.promo/promo.yaml`
 
@@ -31,7 +31,7 @@ Each beat is a one-key object. Anything else fails validation.
 
 | Beat | Form | Effect |
 |---|---|---|
-| `goto` | `goto: /path` | Navigate (path relative to `staging.url`). |
+| `goto` | `goto: /path` | Navigate. The path is resolved against the origin of `staging.url`, so a sub-path in `staging.url` is dropped: write the full path from the root (`/app/tenants`, not `/tenants`). |
 | `click` | `click: "selector"` | Cursor eases to the target, pauses, clicks with a ripple. |
 | `fill` | `fill: { selector: "#name", text: "Ama Mensah" }` | Types the text key by key. |
 | `select` | `select: { selector: "#plan", value: "pro" }` | Picks an option. |
@@ -57,7 +57,8 @@ No override flag exists. See SKILL.md: **never edit around a gate**.
 
 1. **Origin gate.** Every navigation whose origin differs from `staging.url` aborts the flow (kind `origin`). Redirect chains are verified hop by hop.
 2. **`pii_policy`** missing: abort before the browser opens.
-3. **PII scan.** Every still is OCR'd and the DOM text is scanned for emails, phone numbers (Ghana and international forms), IBAN or card-like digit runs, and every `redact:` string. A hit fails the run (kind `pii`), names the frame, and ships no footage.
+3. **PII scan.** Every still is OCR'd and the DOM text is scanned for emails, phone numbers (Ghana and international forms), IBAN or card-like digit runs, and every `redact:` string. A hit fails the run (kind `pii`), names the frame, and ships no footage. The matched text is masked (first character only) in the log and `report.json`; the kind and frame stay.
+4. **`hide:` check.** Every `hide:` selector is applied as `display:none` (the recorded browser ignores the site's CSP so the rule always installs), and after each `goto` and before each still the capture checks that every match really computes to `display:none`. A match that is still visible fails the run (kind `hide`, names the selector, no footage); fix the selector or the page's own styles. A page crash or an unexpected close also fails the PII gate, because the last frames could not be verified.
 
 ### What trips the PII gate (false positives)
 
@@ -72,8 +73,9 @@ Fix with a `hide:` selector for the element, seeded demo data without the patter
 ### Known gaps (documented, not hidden)
 
 - On-screen flashes shorter than about 100 ms can slip between scans.
+- **Pixels-only text is checked only at a `settle`.** Text that exists only as pixels (images, `canvas`, `<video>`, CSS `::before` and `::after`, PDF viewers) is invisible to the DOM scan, and OCR runs only on the settle stills, so anything shown between settles is never checked. Put a `settle` on every state you show, and `hide:` the image and canvas regions that can carry personal data.
 - Blind spots: Ghana numbers written `233...` without `+` or a leading 0; text inside shadow roots; the OCR tests cover email only.
-- Cross-origin iframes, and any cross-origin subframe navigation, are blocked, so the flow fails with kind `origin`. Apps with third-party embeds (maps, video, payment widgets) cannot be captured until an explicit opt-in is designed. Hide the embed with `hide:` or capture a page without it.
+- Cross-origin iframes, and any cross-origin subframe navigation, are blocked, so the flow fails with kind `origin`. Apps with third-party embeds (maps, video, payment widgets) cannot be captured until an explicit opt-in is designed. `hide:` does not help: a hidden iframe still loads, so the gate still fires. Capture a page without the embed.
 - After the redirect chain is verified hop by hop, the final URL is requested a second time, unrouted. A server that answers differently the second time can still leak; one-time GET URLs get consumed twice; a 307 or 308 POST collapses to GET.
 - Popups the browser refuses are listed in `report.blockedNavigations`, but only those the in-page wrapper sees.
 - Service workers are blocked during capture, so a PWA's offline behaviour cannot be shown.

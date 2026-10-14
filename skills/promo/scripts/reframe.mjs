@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url';
 import { loadScenes, ValidationError } from './lib/schema.js';
 import { FfmpegUnavailableError, requireFfmpeg } from './lib/ffmpeg.js';
 import {
-  UsageError, assertFootageFiles, layoutGate, makeContactSheet, readCaptureDurations, renderStills, renderVideo,
+  BrowserUnavailableError, UsageError, assertFootageFiles, layoutGate, makeContactSheet, readCaptureDurations, renderStills, renderVideo,
 } from './lib/render-core.js';
 import { cropForRatio } from './lib/geometry.js';
 import { createLogger } from './lib/log.js';
@@ -76,7 +76,7 @@ export async function main(argv, { load = loadScenes } = {}) {
       ffmpeg, ffprobe, captionMode, reportFile: `render-report-${values.ratio}.json`,
       music: doc.music ? { ...doc.music, musicDir: values['music-dir'] } : null,
     });
-    fs.rmSync(workDir, { recursive: true, force: true });
+    fs.rmSync(workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     logger.info(`reframed ${report.frames} frames at ${size.w}x${size.h} -> ${values.out}`);
 
     const { entries, warnings } = cropReport(doc.scenes, size);
@@ -94,7 +94,7 @@ export async function main(argv, { load = loadScenes } = {}) {
     return 0;
   } catch (e) {
     logger.error(e instanceof ValidationError ? `invalid scenes:\n${e.message}` : e.message);
-    return e instanceof FfmpegUnavailableError ? 2 : 1;
+    return e instanceof FfmpegUnavailableError || e instanceof BrowserUnavailableError ? 2 : 1;
   }
 }
 

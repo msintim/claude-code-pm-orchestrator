@@ -15,7 +15,7 @@ Run it **after** a deploy. It is never a merge or deploy gate.
 
 - Node 22 or newer, full FFmpeg (with `ffprobe`; on PATH, or set `PROMO_FFMPEG` to its bin directory, and a set-but-invalid value is a hard failure), Playwright Chromium.
 - Once per install: `npm ci` inside `SKILL/scripts/`, then `npx playwright install chromium` if the doctor asks for it.
-- Always start with `node scripts/doctor.mjs` (run from the skill directory). Fix every `FAIL` line before going on.
+- Always start with `node SKILL/scripts/doctor.mjs`. Fix every `FAIL` line before going on.
 - A per-product config at `<product repo>/.promo/promo.yaml`. First run? Copy `examples/personal-website.promo.yaml` and adapt it. Field rules are in `references/capture.md`.
 
 ## Invocation
@@ -28,32 +28,32 @@ Run it **after** a deploy. It is never a merge or deploy gate.
 
 ## Exit codes (every script)
 
-`0` ok. `1` validation, hard gate, layout issue or unknown font. `2` environment (FFmpeg or browser missing). `3` flow failure (stale selector or navigation). `report.failed.kind` in `capture/report.json` is one of selector, navigation, origin, pii or login.
+`0` ok. `1` validation, hard gate, layout issue or unknown font. `2` environment (FFmpeg, Chromium or the OCR data missing; `doctor.mjs` and every script that launches the browser use it). `3` flow failure (stale selector or navigation). `report.failed.kind` in `capture/report.json` is one of selector, navigation, origin, pii, login or hide.
 
 ## Workflow
 
 `RUN` is `promo-output/<YYYY-MM-DD-HHMMSS>/` in the product repo, new on every run. Nothing is overwritten.
 
 1. **Capture** (`references/capture.md`)
-   `node scripts/capture.mjs --config .promo/promo.yaml --out RUN/capture [--feature <tag>]`
-   Exit 3: repair the selector in the yaml (see capture.md), re-run. Exit 1 with kind `pii`, `origin` or `login`: see Hard gates.
+   `node SKILL/scripts/capture.mjs --config .promo/promo.yaml --out RUN/capture [--feature <tag>]`
+   Exit 3: repair the selector in the yaml (see capture.md), re-run. Exit 1 with kind `pii`, `origin`, `login` or `hide`: see Hard gates.
 2. **Plan** (`references/plan.md`) - read the product's own copy and README, `capture/report.json` and the settle stills (view the images). Answer the rubric, then write `RUN/promo-plan.md`.
 3. **Compose** (`references/compose.md`) - write `RUN/scenes.json` from the plan. Validation rejects bad fields with their path.
 4. **Stills check loop**
-   `node scripts/render.mjs --scenes RUN/scenes.json --capture RUN/capture --out RUN/stills --stills`
-   View the master stills plus any layout-flagged scene. Fix `scenes.json`, repeat. **Max 3 iterations**, then stop and report to the user what is still wrong. Exit 1 means a layout issue (named in the log).
+   `node SKILL/scripts/render.mjs --scenes RUN/scenes.json --capture RUN/capture --out RUN/stills --stills`
+   View the master stills plus any layout-flagged scene. Fix `scenes.json`, repeat. **Max 3 iterations**, then stop and report to the user what is still wrong. Exit 1 is a validation or layout failure: read the log, which names the field or scene.
 5. **Render the master**
-   `node scripts/render.mjs --scenes RUN/scenes.json --capture RUN/capture --out RUN`
+   `node SKILL/scripts/render.mjs --scenes RUN/scenes.json --capture RUN/capture --out RUN`
    Writes `master-16x9.mp4` and `render-report.json`.
 6. **Reframe** (skip when `--formats` omits feed and reel)
-   `node scripts/reframe.mjs --scenes RUN/scenes.json --capture RUN/capture --ratio 1x1 --out RUN/feed-1x1.mp4 --stills RUN/stills-1x1`
-   `node scripts/reframe.mjs --scenes RUN/scenes.json --capture RUN/capture --ratio 9x16 --out RUN/reel-9x16.mp4 --stills RUN/stills-9x16`
+   `node SKILL/scripts/reframe.mjs --scenes RUN/scenes.json --capture RUN/capture --ratio 1x1 --out RUN/feed-1x1.mp4 --stills RUN/stills-1x1`
+   `node SKILL/scripts/reframe.mjs --scenes RUN/scenes.json --capture RUN/capture --ratio 9x16 --out RUN/reel-9x16.mp4 --stills RUN/stills-9x16`
    View only `contact-1x1.png` and `contact-9x16.png`. Read `reframe-report-<ratio>.json` warnings (focus crop coverage); fix `focus` and re-run. A layout failure renders nothing.
 7. **Hero loop** (when `hero` is requested)
-   `node scripts/loop.mjs --scenes RUN/scenes.json --capture RUN/capture --out RUN`
+   `node SKILL/scripts/loop.mjs --scenes RUN/scenes.json --capture RUN/capture --out RUN`
    Writes `hero-loop.mp4` and `hero-loop.webm`. Needs at least 8.5 s of footage, else a usage error.
 8. **Posters** (`references/deliver.md`) - pick the strongest settled still per output, then
-   `node scripts/poster.mjs --video RUN/master-16x9.mp4 --still <png> --poster RUN/poster-16x9.jpg --out RUN/feed-16x9.mp4`
+   `node SKILL/scripts/poster.mjs --video RUN/master-16x9.mp4 --still <png> --poster RUN/poster-16x9.jpg --out RUN/feed-16x9.mp4`
    Repeat for 1x1 and 9x16. For the hero loop use `--no-bake` (never bake a poster into a loop).
 9. **Share copy** - write `RUN/share-copy.md` (channel rules in deliver.md).
 10. **Report** - where each file is, one sentence on the creative angle, any gate or reframe warnings, and an offer to re-roll a scene or try another tone.
@@ -66,7 +66,7 @@ Three gates fail the run with no override flag:
 
 1. **Origin gate.** Any navigation outside `staging.url`'s origin aborts the flow, including cross-origin iframes (kind `origin`).
 2. **`pii_policy`.** Missing from the config, the run refuses before the browser opens.
-3. **PII scan.** Every captured still is OCR'd and the DOM text is scanned for emails, phone numbers, card-like digit runs and every `redact:` string. A hit fails the run and names the frame.
+3. **PII scan.** Every captured still is OCR'd and the DOM text is scanned for emails, phone numbers, card-like digit runs and every `redact:` string. A hit fails the run and names the frame. Text that exists only as pixels (images, canvas, video, CSS pseudo-elements) is OCR'd only at a `settle`: put a `settle` on every state you show and `hide:` image regions (gaps in `references/capture.md`). A `hide:` selector whose match is still visible fails the run (kind `hide`).
 
 **Never edit around a gate.** If a gate fires, fix the demo data, add a `hide:` selector or a `redact:` string, or change the flow. Do not weaken the config, skip the scan, shorten footage to dodge a frame, or hand-edit output. The gates are fail-closed, so false positives happen (long numeric IDs, millisecond timestamps); known blind spots and the full list are in `references/capture.md`. Never post a video that was not produced through the gates.
 
@@ -117,7 +117,7 @@ Capture, render and delivery commands are mechanical and can run in the parent s
 
 ## What is committed
 
-`promo-output/` is gitignored except `promo-plan.md` and `share-copy.md`, which are committed as the record of what was claimed on screen. Commit `.promo/promo.yaml` too (credentials are env var names only). Videos stay out of git.
+`promo-output/` is gitignored except `promo-plan.md` and `share-copy.md`, which are committed as the record of what was claimed on screen. The rule for the product repo's `.gitignore` is `promo-output/*/*`, `!promo-output/*/promo-plan.md`, `!promo-output/*/share-copy.md`. Commit `.promo/promo.yaml` too (credentials are env var names only). Videos stay out of git.
 
 ## Music
 

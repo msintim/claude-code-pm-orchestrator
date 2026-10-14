@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { collectChecks } from '../lib/doctor.js';
+import { collectChecks, exitCodeFor } from '../lib/doctor.js';
 import { INSTALL_HINT } from '../lib/ffmpeg.js';
 
 test('doctor reports a missing ffmpeg as a failure carrying the install hint', async () => {
@@ -49,4 +49,15 @@ test('doctor confirms the vendored OCR data is present', async () => {
   assert.ok(tessdata);
   assert.equal(tessdata.ok, true);
   assert.ok(tessdata.detail.includes('eng.traineddata'));
+});
+
+test('exit code: 2 when ffmpeg, chromium or tessdata fail, 1 for other failures, 0 when all pass', () => {
+  const ok = (name) => ({ name, ok: true, detail: '' });
+  const bad = (name) => ({ name, ok: false, detail: '' });
+  assert.equal(exitCodeFor([ok('node'), ok('ffmpeg'), ok('playwright-chromium'), ok('tessdata')]), 0);
+  for (const name of ['ffmpeg', 'playwright-chromium', 'tessdata']) {
+    assert.equal(exitCodeFor([ok('node'), bad(name)]), 2, name);
+  }
+  assert.equal(exitCodeFor([bad('node'), ok('ffmpeg')]), 1);
+  assert.equal(exitCodeFor([bad('node'), bad('tessdata')]), 2);
 });

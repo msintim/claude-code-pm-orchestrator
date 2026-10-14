@@ -64,6 +64,15 @@ function checkTessdata() {
   }
 }
 
+// A missing tool the pipeline needs is an environment problem (2); anything else that fails (an old Node) is 1.
+const ENVIRONMENT_CHECKS = new Set(['ffmpeg', 'playwright-chromium', 'tessdata']);
+
+export function exitCodeFor(checks) {
+  const failed = checks.filter((c) => !c.ok);
+  if (failed.some((c) => ENVIRONMENT_CHECKS.has(c.name))) return 2;
+  return failed.length > 0 ? 1 : 0;
+}
+
 export async function collectChecks({ env = process.env } = {}) {
   return [checkNode(), await checkFfmpeg(env), checkChromium(), checkTessdata()];
 }

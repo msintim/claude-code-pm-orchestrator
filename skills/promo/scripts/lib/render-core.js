@@ -24,6 +24,9 @@ export const ENCODE = Object.freeze({ codec: 'libx264', crf: 18, pix_fmt: 'yuv42
 /** A bad command line or an unusable input file: the caller's CLI exits 1. */
 export class UsageError extends Error {}
 
+/** The browser cannot be started: an environment problem (exit 2), not something the input files can fix. */
+export class BrowserUnavailableError extends Error {}
+
 /** The capture step's report.json; a failed or unreadable capture is refused. Returns the per-flow durations. */
 export function readCaptureDurations(captureDir) {
   const file = path.join(captureDir, 'report.json');
@@ -125,7 +128,11 @@ export async function openCompositor({ scenes, brand, size, captureDir, captionM
     fs.rmSync(dir, { recursive: true, force: true });
   };
   try {
-    browser = await chromium.launch();
+    try {
+      browser = await chromium.launch();
+    } catch (e) {
+      throw new BrowserUnavailableError(`cannot launch Chromium: ${String(e.message).split('\n')[0]} (run: npx playwright install chromium)`);
+    }
     const page = await browser.newPage({ viewport: { width: size.w, height: size.h }, deviceScaleFactor: 1 });
     await page.goto(`${server.origin}/templates/compositor.html`);
     await assertFontAvailable(page, brand.font);
@@ -241,7 +248,7 @@ export async function renderVideo({ scenes: doc, size, captureDir, outFile, work
   const timeline = buildTimeline(scenes, FPS);
   let audio = null;
   const framesDir = path.join(workDir, 'frames');
-  fs.rmSync(framesDir, { recursive: true, force: true });
+  fs.rmSync(framesDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   fs.mkdirSync(framesDir, { recursive: true });
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
 
@@ -283,7 +290,7 @@ export async function renderVideo({ scenes: doc, size, captureDir, outFile, work
       });
     }
   } finally {
-    if (!keepFrames) fs.rmSync(framesDir, { recursive: true, force: true });
+    if (!keepFrames) fs.rmSync(framesDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 
   const report = {

@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { loadScenes, ValidationError } from './lib/schema.js';
 import { FfmpegUnavailableError, requireFfmpeg } from './lib/ffmpeg.js';
 import {
-  UsageError, assertFootageFiles, makeContactSheet, readCaptureDurations, renderStills, renderVideo,
+  BrowserUnavailableError, UsageError, assertFootageFiles, makeContactSheet, readCaptureDurations, renderStills, renderVideo,
 } from './lib/render-core.js';
 import { createLogger } from './lib/log.js';
 
@@ -61,7 +61,7 @@ async function main(argv) {
     return report.layoutIssues.length > 0 ? 1 : 0;
   } catch (e) {
     logger.error(e instanceof ValidationError ? `invalid scenes:\n${e.message}` : e.message);
-    return e instanceof FfmpegUnavailableError ? 2 : 1;
+    return e instanceof FfmpegUnavailableError || e instanceof BrowserUnavailableError ? 2 : 1;
   }
 }
 
