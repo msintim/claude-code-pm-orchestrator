@@ -17,7 +17,7 @@ Committed in the product repo. See `examples/personal-website.promo.yaml` for a 
 | `brand` | `primary` and `accent` as `#RRGGBB`, `font` one installed family name, `theme` `light` or `dark`. All four required. |
 | `staging.url` | The ONLY origin capture may touch. |
 | `staging.login` | Optional: `path` (starts with `/`), `user_env`, `pass_env` (environment variable NAMES, upper case), `submit` selector, `settled` selector. |
-| `hide` | Selectors set to `display:none` on every navigation (cookie banners, dev toolbars, anything holding personal data). |
+| `hide` | Selectors set to `display:none` on every navigation (cookie banners, dev toolbars, anything holding personal data). CSS selectors only: Playwright selectors (`:has-text()`, `text=`) are rejected with exit 1 before any page opens. |
 | `pii_policy` | Required, any non-empty string describing why the data is safe (for example `demo-tenant-only`). The run refuses without it. |
 | `redact` | Extra strings the scan must never find (a surname, an email domain, a real address). |
 | `flows` | At least one. `name` is lowercase letters, digits and `-`; optional `feature` tag for `--feature`; `beats` list. |

@@ -66,7 +66,7 @@ Three gates fail the run with no override flag:
 
 1. **Origin gate.** Any navigation outside `staging.url`'s origin aborts the flow, including cross-origin iframes (kind `origin`).
 2. **`pii_policy`.** Missing from the config, the run refuses before the browser opens.
-3. **PII scan.** Every captured still is OCR'd and the DOM text is scanned for emails, phone numbers, card-like digit runs and every `redact:` string. A hit fails the run and names the frame. Text that exists only as pixels (images, canvas, video, CSS pseudo-elements) is OCR'd only at a `settle`: put a `settle` on every state you show and `hide:` image regions (gaps in `references/capture.md`). A `hide:` selector whose match is still visible fails the run (kind `hide`).
+3. **PII scan.** Every captured still is OCR'd and the DOM text is scanned for emails, phone numbers, card-like digit runs and every `redact:` string. A hit fails the run and names the frame. Text that exists only as pixels (images, canvas, video, CSS pseudo-elements) is OCR'd only at a `settle`: put a `settle` on every state you show and `hide:` image regions (gaps in `references/capture.md`). A `hide:` selector whose match is still visible fails the run (kind `hide`). `hide:` takes CSS selectors only; Playwright selectors (`:has-text()`, `text=`) are rejected.
 
 **Never edit around a gate.** If a gate fires, fix the demo data, add a `hide:` selector or a `redact:` string, or change the flow. Do not weaken the config, skip the scan, shorten footage to dodge a frame, or hand-edit output. The gates are fail-closed, so false positives happen (long numeric IDs, millisecond timestamps); known blind spots and the full list are in `references/capture.md`. Never post a video that was not produced through the gates.
 

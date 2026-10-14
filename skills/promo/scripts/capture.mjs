@@ -258,8 +258,15 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
         try {
           const els = Array.from(document.querySelectorAll(s));
           return { n: els.length, visible: els.filter((el) => getComputedStyle(el).display !== 'none').length };
-        } catch { return { n: 0, visible: 0 }; }
+        } catch { return { n: 0, visible: 0, invalid: true }; }
       }), hide);
+      const broken = res.findIndex((r) => r.invalid);
+      if (broken >= 0) {
+        throw new FlowFailure({
+          flow: flow.name, beatIndex: index, kind: 'hide',
+          message: `hide gate: flow "${flow.name}" beat ${index}: hide selector "${hide[broken]}" is not a valid CSS selector, so it cannot be verified as hidden`,
+        });
+      }
       res.forEach(({ n }, i) => { hidden[hide[i]] = Math.max(hidden[hide[i]], n); });
       const bad = res.findIndex((r) => r.visible > 0);
       if (bad >= 0) {
@@ -557,6 +564,22 @@ export async function runCapture({ configPath, outDir, feature, env = process.en
       browser = await chromium.launch({ args: CHROMIUM_ARGS });
     } catch (e) {
       throw new EnvironmentError(`cannot launch Chromium: ${e.message.split('\n')[0]} (run: npx playwright install chromium)`);
+    }
+    // hide: takes CSS. A Playwright-only selector (:has-text, text=) is dropped by the browser's style rule and
+    // throws in querySelectorAll, so it would redact nothing; reject it before any staging page is opened.
+    const hideList = config.hide ?? [];
+    if (hideList.length) {
+      const probe = await browser.newPage();
+      try {
+        const invalid = await probe.evaluate((sels) => sels.filter((s) => {
+          try { document.createDocumentFragment().querySelector(s); return false; } catch { return true; }
+        }), hideList);
+        if (invalid.length) {
+          throw new UsageError(invalid.map((s) => `hide selector "${s}" is not a valid CSS selector (hide: takes CSS, not Playwright selectors)`).join('\n'));
+        }
+      } finally {
+        await within(probe.close(), 5000);
+      }
     }
     for (const flow of flows) {
       let result;

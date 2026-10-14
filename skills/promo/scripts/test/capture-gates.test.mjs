@@ -262,6 +262,19 @@ test('hide: a selector that matches something still visible fails the flow close
   equal(webms(outDir).length, 0);
 });
 
+for (const bad of ['p:has-text("Jane Doe")', 'text=Jane Doe']) {
+  test(`hide: a non-CSS (Playwright) selector ${bad} is rejected up front, never read as zero matches`, { skip }, async () => {
+    const { r, report, outDir } = await runGate({
+      flow: 'bad-hide-flow', hide: [bad], beats: [{ goto: '/pii.html?v=unhideable' }, { settle: 'h1' }],
+    });
+    equal(r.status, 1, r.stderr);
+    match(r.stderr, /not a valid CSS selector/);
+    ok(r.stderr.includes(bad), r.stderr);
+    ok(!report || report.status !== 'ok');
+    equal(fs.existsSync(outDir) ? webms(outDir).length : 0, 0);
+  });
+}
+
 const loginCfg = (path_ = '/login.html') => ({
   path: path_, user_env: 'RPMS_DEMO_USER', pass_env: 'RPMS_DEMO_PASS', submit: '#submit', settled: '#app-home',
 });
