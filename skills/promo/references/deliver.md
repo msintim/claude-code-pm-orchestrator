@@ -26,7 +26,7 @@ Footage scenes only, no text, no audio. `loop.mjs` picks in and out points where
 Pull the strongest *settled* frame (text fully in, not mid-transition) from the stills you already viewed. Then:
 
 ```
-node scripts/poster.mjs --video <in.mp4> --still <png> --poster <out.jpg> --out <baked.mp4>
+node SKILL/scripts/poster.mjs --video <in.mp4> --still <png> --poster <out.jpg> --out <baked.mp4>
 ```
 
 This writes the JPEG and bakes it in as frame 0 of that output, replacing frame 0 rather than adding a frame, so duration, frame count and audio sync stay the same. At 30 fps the poster shows for 1/30 s before the intro rolls, so it is imperceptible on playback but it is what every thumbnail grabber sees. Stills with transparency are flattened first so nothing bleeds into frame 0.
@@ -36,7 +36,7 @@ Do one poster per video: 16:9, 1:1 and 9:16. Use a still from the matching ratio
 **The hero loop is never baked.** A different frame 0 would flash on every loop. Use `--no-bake`, which writes only the JPEG and leaves the video untouched:
 
 ```
-node scripts/poster.mjs --video RUN/hero-loop.mp4 --still <png> --poster RUN/poster-hero.jpg --no-bake
+node SKILL/scripts/poster.mjs --video RUN/hero-loop.mp4 --still <png> --poster RUN/poster-hero.jpg --no-bake
 ```
 
 ## Share copy
@@ -56,10 +56,10 @@ Banned: "Excited to share" and generic SaaS language. Every claim must be one th
 If `render-report.json` has a non-null `audio.attribution`, the track needs a credit: append it as a footnote on its own line to every caption that ships with a video that uses it, for example:
 
 ```
-Music: "<title>" by <author>, CC-BY-4.0, <url>
+Music: "<title>" by <author> (<url>), CC BY 4.0 https://creativecommons.org/licenses/by/4.0/, edited
 ```
 
-Use the string from `render-report.json.audio.attribution` exactly. It is null for CC0 tracks and for a `--music-dir` without a `LICENSES.md`, in which case you are responsible for any licence terms of music you supplied.
+The line carries the licence URI and says the track was edited (it is cut, looped and ducked), as CC BY 4.0 requires. Use the string from `render-report.json.audio.attribution` exactly. It is null for CC0 tracks and for a `--music-dir` without a `LICENSES.md`, in which case you are responsible for any licence terms of music you supplied.
 
 ## Tell the user
 

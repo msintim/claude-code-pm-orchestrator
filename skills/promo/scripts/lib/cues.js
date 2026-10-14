@@ -10,6 +10,8 @@ export const MINOR_TOL = 0.10;
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_MUSIC_DIR = path.resolve(here, '..', '..', 'assets', 'music');
 
+const CC_BY_URI = 'https://creativecommons.org/licenses/by/4.0/';
+
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const isObj = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -61,7 +63,7 @@ export function alignmentReport(boundaries, cues, tol = MAJOR_TOL) {
 
 /**
  * The credit line for a bundled track, read from the LICENSES.md table row
- * `| track | title | author | source URL | licence | retrieved |`: `"Title" by Author, CC-BY-4.0, <url>`.
+ * `| track | title | author | source URL | licence | retrieved |`: `Music: "Title" by Author (<url>), CC BY 4.0 <licence URI>, edited`.
  * null for a CC0 track (no credit required) and for a directory without a LICENSES.md (user-supplied
  * music is not tracked). A LICENSES.md that has no row for the track is an error: the licence is unproven.
  */
@@ -84,7 +86,10 @@ export async function attributionFor(track, { musicDir } = {}) {
     if (cells[0] !== track) continue;
     const [, title, author, url, licence] = cells;
     if (!title || !author || !url || !licence) throw new Error(`${file}: the row for "${track}" is incomplete`);
-    return licence === 'CC0' ? null : `"${title}" by ${author}, ${licence}, ${url}`;
+    if (licence === 'CC0') return null;
+    if (licence !== 'CC-BY-4.0') throw new Error(`${file}: the row for "${track}" has licence "${licence}"; only CC-BY-4.0 and CC0 are supported`);
+    // CC BY 4.0 asks for title, author, source, the licence with its URI, and a note that it was changed (the track is cut, looped and ducked).
+    return `Music: "${title}" by ${author} (${url}), CC BY 4.0 ${CC_BY_URI}, edited`;
   }
   throw new Error(`${file} has no row for "${track}": add its title, author, source URL, licence and retrieved date`);
 }

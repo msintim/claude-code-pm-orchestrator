@@ -202,7 +202,7 @@ test('music null -> no audio stream; music set -> one aac stream with duration =
 
 test('a bundled track renders and records its CC BY credit line in render-report.json', async () => {
   const { dir, report } = await doRender('music-bundled', { music: { track: 'happy-beats-business-moves-vol-3' } });
-  const credit = '"Happy Beats & Business Moves Vol. 3" by Sascha Ende, CC-BY-4.0, https://ende.app/en/song/12868-happy-beats-business-moves-vol-3';
+  const credit = 'Music: "Happy Beats & Business Moves Vol. 3" by Sascha Ende (https://ende.app/en/song/12868-happy-beats-business-moves-vol-3), CC BY 4.0 https://creativecommons.org/licenses/by/4.0/, edited';
   assert.equal(report.audio.attribution, credit);
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'render-report.json'), 'utf8')).audio.attribution, credit);
 });
@@ -234,6 +234,13 @@ test('CLI refuses invalid scenes.json (exit 1, prints the field path)', async ()
   const r = await runCliAsync(render, ['--scenes', writeScenes(bad), '--capture', cliEnv(), '--out', tmpDir('out')]);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /\/scenes\/0\/duration/);
+});
+
+test('CLI exits 2 (environment) when Chromium cannot be launched, not 1', async () => {
+  const emptyBrowsers = tmpDir('no-browsers');
+  const r = await runCliAsync(render, ['--scenes', writeScenes(goodScenes()), '--capture', cliEnv(), '--out', tmpDir('out')], { PLAYWRIGHT_BROWSERS_PATH: emptyBrowsers });
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /cannot launch Chromium/);
 });
 
 test('CLI refuses a capture report with status failed (exit 1)', async () => {

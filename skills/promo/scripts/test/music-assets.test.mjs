@@ -41,7 +41,7 @@ test('attributionFor returns a CC-BY credit line and null for CC0', async () => 
     + '| quiet-pad | Quiet Pad | Someone Else | https://example.org/quiet-pad | CC0 | 2026-10-14 |\n');
   assert.equal(
     await attributionFor('happy-beats', { musicDir }),
-    '"Happy Beats & Business Moves, Vol. 1" by Sascha Ende, CC-BY-4.0, https://ende.app/en/song/12866-happy-beats-business-moves-vol-1',
+    'Music: "Happy Beats & Business Moves, Vol. 1" by Sascha Ende (https://ende.app/en/song/12866-happy-beats-business-moves-vol-1), CC BY 4.0 https://creativecommons.org/licenses/by/4.0/, edited',
   );
   assert.equal(await attributionFor('quiet-pad', { musicDir }), null);
 });
