@@ -78,8 +78,7 @@ async function main(argv) {
     for (const i of report.layoutIssues) logger.error(`layout ${i.kind} in scene ${i.scene + 1} field "${i.field}": ${i.detail}`);
     return report.layoutIssues.length > 0 ? 1 : 0;
   } catch (e) {
-    logger.error(e instanceof ValidationError ? `invalid scenes:
-${e.message}` : e.message);
+    logger.error(e instanceof ValidationError ? `invalid scenes:\n${e.message}` : e.message);
     return e instanceof FfmpegUnavailableError ? 2 : 1;
   }
 }

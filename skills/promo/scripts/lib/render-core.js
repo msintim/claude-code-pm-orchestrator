@@ -189,7 +189,7 @@ export async function renderVideo({ scenes: doc, size, captureDir, outFile, work
     });
     if (webm) {
       await encode({
-        ffmpeg, framesDir, out: outFile.replace(/.mp4$/, '.webm'),
+        ffmpeg, framesDir, out: outFile.replace(/\.mp4$/, '.webm'),
         codecArgs: ['-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0', '-pix_fmt', 'yuv420p'],
       });
     }
@@ -208,7 +208,6 @@ export async function renderVideo({ scenes: doc, size, captureDir, outFile, work
     cueAlignment: [],
     layoutIssues,
   };
-  fs.writeFileSync(path.join(path.dirname(outFile), 'render-report.json'), `${JSON.stringify(report, null, 2)}
-`);
+  fs.writeFileSync(path.join(path.dirname(outFile), 'render-report.json'), `${JSON.stringify(report, null, 2)}\n`);
   return report;
 }

@@ -234,3 +234,17 @@ test('unknown brand.font is refused naming the font (exit 1, a scenes.json value
   assert.equal(r.status, 1);
   assert.match(r.stderr, /Definitely Not A Font 123/);
 });
+
+test('a throw while rendering a frame is reported: the message handler posts frame-error and drive() rejects', async () => {
+  const c = await open([FOOTAGE({ caption: undefined })]);
+  // A BigInt time makes the timeline arithmetic throw a TypeError inside renderFrame.
+  const reply = await c.page.evaluate(() => new Promise((resolve) => {
+    window.addEventListener('message', (e) => {
+      if (e.data?.type === 'frame-error' || e.data?.type === 'frame-ready') resolve(e.data);
+    });
+    window.postMessage({ type: 'render', t: 1n }, location.origin);
+  }));
+  assert.equal(reply.type, 'frame-error');
+  assert.match(reply.message, /BigInt|convert/i);
+  await assert.rejects(c.page.evaluate(() => window.__promo.renderFrame(1n)), /BigInt|convert/i);
+});

@@ -67,7 +67,7 @@ export function serveDirs(mounts, { host = '127.0.0.1', port = 0, handlers = {} 
       'accept-ranges': 'bytes',
     };
     // A video element can only seek a file the server answers byte ranges for; without them it is stuck at 0.
-    const range = /^bytes=(d*)-(d*)$/.exec(req.headers.range ?? '');
+    const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
     if (range && (range[1] || range[2])) {
       const start = range[1] === '' ? Math.max(size - Number(range[2]), 0) : Number(range[1]);
       const end = range[1] === '' || range[2] === '' ? size - 1 : Math.min(Number(range[2]), size - 1);
