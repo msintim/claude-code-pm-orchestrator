@@ -1,0 +1,12 @@
+#!/usr/bin/env node
+import { collectChecks } from './lib/doctor.js';
+
+const checks = await collectChecks();
+for (const c of checks) {
+  console.log(`[${c.ok ? 'ok' : 'FAIL'}] ${c.name} - ${c.detail}`);
+  if (!c.ok && c.fix) console.log(`       fix: ${c.fix}`);
+}
+
+const failed = checks.filter((c) => !c.ok);
+if (failed.some((c) => c.name === 'ffmpeg')) process.exit(2);
+if (failed.length > 0) process.exit(1);

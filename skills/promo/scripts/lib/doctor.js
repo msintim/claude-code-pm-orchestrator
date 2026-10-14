@@ -1,0 +1,49 @@
+import fs from 'node:fs';
+import { chromium } from 'playwright';
+import { INSTALL_HINT, FfmpegNotFoundError, resolveFfmpeg, checkCapabilities } from './ffmpeg.js';
+
+const MIN_NODE_MAJOR = 22;
+
+function checkNode() {
+  const major = Number(process.versions.node.split('.')[0]);
+  const ok = major >= MIN_NODE_MAJOR;
+  return {
+    name: 'node',
+    ok,
+    detail: `v${process.versions.node}`,
+    ...(ok ? {} : { fix: `Install Node >=${MIN_NODE_MAJOR}` }),
+  };
+}
+
+async function checkFfmpeg(env) {
+  try {
+    const bins = resolveFfmpeg({ env });
+    const caps = await checkCapabilities(bins);
+    if (caps.ok) return { name: 'ffmpeg', ok: true, detail: bins.ffmpeg };
+    return {
+      name: 'ffmpeg',
+      ok: false,
+      detail: `${bins.ffmpeg} lacks: ${caps.missing.join(', ')}`,
+      fix: INSTALL_HINT,
+    };
+  } catch (e) {
+    const detail = e instanceof FfmpegNotFoundError ? 'ffmpeg/ffprobe not found' : e.message.split('\n')[0];
+    return { name: 'ffmpeg', ok: false, detail, fix: INSTALL_HINT };
+  }
+}
+
+function checkChromium() {
+  const fix = 'npx playwright install chromium';
+  try {
+    const exe = chromium.executablePath();
+    return fs.existsSync(exe)
+      ? { name: 'playwright-chromium', ok: true, detail: exe }
+      : { name: 'playwright-chromium', ok: false, detail: `not installed (${exe})`, fix };
+  } catch (e) {
+    return { name: 'playwright-chromium', ok: false, detail: e.message.split('\n')[0], fix };
+  }
+}
+
+export async function collectChecks({ env = process.env } = {}) {
+  return [checkNode(), await checkFfmpeg(env), checkChromium()];
+}

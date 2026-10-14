@@ -1,0 +1,4 @@
+node_modules/
+promo-output/
+skills/promo/scripts/test/.tmp/
+*.log
