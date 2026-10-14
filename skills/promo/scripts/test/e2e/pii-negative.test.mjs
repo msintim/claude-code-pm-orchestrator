@@ -28,9 +28,11 @@ test('a PII hit fails the capture and downstream refuses it', { skip, timeout: 1
     ok(!fs.existsSync(path.join(outDir, 'pii-flow.webm')), 'no video is kept for a failed capture');
 
     const scenes = path.join(fixtureSite, 'scenes.json');
-    const rr = await runCliAsync(cli('render.mjs'), ['--scenes', scenes, '--capture', outDir, '--out', tmpDir('e2e-pii-out')]);
+    const renderOut = tmpDir('e2e-pii-out');
+    const rr = await runCliAsync(cli('render.mjs'), ['--scenes', scenes, '--capture', outDir, '--out', renderOut]);
     equal(rr.status, 1);
-    match(rr.stderr, /status/);
+    match(rr.stderr, /capture report .* has status "failed"/);
+    ok(!fs.existsSync(path.join(renderOut, 'master-16x9.mp4')), 'a refused render writes no master');
   } finally {
     await site.close();
   }

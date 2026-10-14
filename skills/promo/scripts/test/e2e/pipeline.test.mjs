@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { resolveFfmpeg } from '../../lib/ffmpeg.js';
 import { serveDirs } from '../../lib/server.js';
@@ -21,7 +22,10 @@ const probe = (file) => JSON.parse(spawnSync(bins.ffprobe, [
 const sizeOf = (file) => { const v = probe(file).streams.find((s) => s.codec_type === 'video'); return [v.width, v.height]; };
 const durationOf = (file) => Number(probe(file).format.duration);
 const hasAudio = (file) => probe(file).streams.some((s) => s.codec_type === 'audio');
-const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
+const sha256 = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const heroFiles = ['hero-loop.mp4', 'hero-loop.webm'];
+const heroHashes = {};
+const readJson =(file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 
 async function ok0(promise, label) {
   const r = await promise;
@@ -85,6 +89,7 @@ test('promo pipeline on the fixture site', { skip, timeout: 20 * 60_000 }, async
 
   await t.test('hero loop', async () => {
     await timed('loop', () => ok0(runCliAsync(cli('loop.mjs'), ['--scenes', scenes, '--capture', capture, '--out', run], env), 'loop'));
+    for (const f of heroFiles) heroHashes[f] = sha256(path.join(run, f));
   });
 
   await t.test('posters (baked for the three, --no-bake for the hero)', async () => {
@@ -124,14 +129,14 @@ test('promo pipeline on the fixture site', { skip, timeout: 20 * 60_000 }, async
   });
 
   await t.test('posters exist as jpg and match output sizes; hero poster not baked', () => {
-    const expected = { 'poster-16x9.jpg': [1920, 1080], 'poster-1x1.jpg': [1080, 1080], 'poster-9x16.jpg': [1080, 1920], 'poster-hero.jpg': null };
+    const expected = { 'poster-16x9.jpg': [1920, 1080], 'poster-1x1.jpg': [1080, 1080], 'poster-9x16.jpg': [1080, 1920], 'poster-hero.jpg': [1920, 1080] };
     for (const [name, size] of Object.entries(expected)) {
       const file = path.join(run, name);
       ok(fs.existsSync(file), `${name} exists`);
       if (size) deepEqual(sizeOf(file), size);
     }
-    // --no-bake leaves the loop alone: the hero video still lasts what loop.mjs wrote.
-    ok(fs.existsSync(path.join(run, 'hero-loop.mp4')));
+    // --no-bake leaves both loop files byte-identical to what loop.mjs wrote.
+    for (const f of heroFiles) equal(sha256(path.join(run, f)), heroHashes[f], `${f} was modified after loop.mjs`);
   });
 
   await t.test('reel layout: reframe-report has no warnings other than coverage', () => {
