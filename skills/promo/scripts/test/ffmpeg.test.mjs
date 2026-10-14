@@ -127,6 +127,62 @@ test('parseCapabilities accepts a full build listing', () => {
   assert.deepEqual(parseCapabilities(encoders, filters), { ok: true, missing: [] });
 });
 
+const FULL_ENCODERS = [
+  ' V....D libx264              libx264 H.264',
+  ' A....D aac                  AAC (Advanced Audio Coding)',
+  ' V....D libvpx-vp9           libvpx VP9',
+].join('\n');
+
+const FFMPEG9_FILTERS = [
+  'Filters:',
+  '  T.. = Timeline support',
+  '  .S. = Slice threading',
+  '  A = Audio input/output',
+  '  V = Video input/output',
+  '  N = Dynamic number and/or type of input/output',
+  '  | = Source or sink filter',
+  '  ------',
+  ' TS aap               AA->A      Apply Affine Projection algorithm to first audio stream.',
+  ' .. abench            A->A       Benchmark part of a filtergraph.',
+  ' T. afade             A->A       Fade in/out input audio.',
+  ' .. aloop             A->A       Loop audio samples.',
+  ' T. volume            A->A       Change input volume.',
+  ' TS overlay           VV->V      Overlay a video source on top of the input.',
+  ' .S xfade             VV->V      Cross fade one video with another video.',
+].join('\n');
+
+test('parseCapabilities accepts the 2-char filter flag column printed by ffmpeg 9', () => {
+  assert.deepEqual(parseCapabilities(FULL_ENCODERS, FFMPEG9_FILTERS), { ok: true, missing: [] });
+});
+
+test('parseCapabilities still accepts the legacy 3-char filter flag column', () => {
+  const filters = [
+    ' TSC overlay  VV->V  Overlay a video source.',
+    ' ... xfade    VV->V  Cross fade.',
+    ' T.C afade    A->A   Fade audio.',
+    ' T.. volume   A->A   Change volume.',
+    ' ... aloop    A->A   Loop audio.',
+  ].join('\n');
+  assert.deepEqual(parseCapabilities(FULL_ENCODERS, filters), { ok: true, missing: [] });
+});
+
+test('parseCapabilities does not read legend lines as names', () => {
+  const legendOnly = [
+    'Filters:',
+    '  T.. = Timeline support',
+    '  .S. = Slice threading',
+    '  A = Audio input/output',
+    '  V = Video input/output',
+    '  | = Source or sink filter',
+    '  ------',
+  ].join('\n');
+  const r = parseCapabilities(' V..... = Video\n A..... = Audio\n' + FULL_ENCODERS, legendOnly);
+  assert.equal(r.ok, false);
+  for (const m of ['overlay', 'xfade', 'afade', 'volume', 'aloop']) assert.ok(r.missing.includes(m));
+  const legendEncoders = parseCapabilities(' V..... = Video\n A..... = Audio\n S..... = Subtitle', FFMPEG9_FILTERS);
+  assert.deepEqual(legendEncoders.missing, ['libx264', 'aac', 'libvpx-vp9']);
+});
+
 test('Playwright bundled ffmpeg fails checkCapabilities', { skip: !fs.existsSync(PW_FFMPEG) }, async () => {
   const r = await checkCapabilities({ ffmpeg: PW_FFMPEG });
   assert.equal(r.ok, false);

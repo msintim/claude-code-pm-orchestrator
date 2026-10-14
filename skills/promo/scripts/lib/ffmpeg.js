@@ -64,9 +64,12 @@ export function resolveFfmpeg({ env = process.env, platform = process.platform, 
   throw new FfmpegNotFoundError();
 }
 
-function listedNames(text, flagWidth) {
+// The flag column's width varies by ffmpeg version (-filters prints 3 chars in older builds, 2 in 9.x),
+// so accept any short run of flag characters. Legend lines ("T.. = Timeline support") have "=" where
+// a name would be and are skipped.
+function listedNames(text) {
   const names = new Set();
-  const line = new RegExp(`^\\s*[A-Z.]{${flagWidth}}\\s+(\\S+)`);
+  const line = /^\s*[A-Z.|]{1,6}\s+(?!=(?:\s|$))(\S+)/;
   for (const l of text.split(/\r?\n/)) {
     const m = line.exec(l);
     if (m) names.add(m[1]);
@@ -75,8 +78,8 @@ function listedNames(text, flagWidth) {
 }
 
 export function parseCapabilities(encodersText, filtersText) {
-  const encoders = listedNames(encodersText, 6);
-  const filters = listedNames(filtersText, 3);
+  const encoders = listedNames(encodersText);
+  const filters = listedNames(filtersText);
   const missing = [
     ...REQUIRED_ENCODERS.filter((n) => !encoders.has(n)),
     ...REQUIRED_FILTERS.filter((n) => !filters.has(n)),
