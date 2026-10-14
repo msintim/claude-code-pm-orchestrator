@@ -9,7 +9,8 @@
 // attach a route to the new page (verified: the request reaches the other server). So popups are handled
 // in two layers. (1) POPUP_TO_SELF rewrites target/window.open to the current tab, which makes the
 // navigation an ordinary, routed, main-frame one. (2) CHROMIUM_ARGS makes the browser refuse any new window
-// that still gets through (silently: the request is never sent, but Playwright sees no page either).
+// that still gets through (no request is sent and Playwright sees no page, so attempts are recorded in
+// gate.blocked via the iframe-window wrapper where the page lets us see them).
 
 export const CHROMIUM_ARGS = ['--block-new-web-contents'];
 
@@ -21,6 +22,24 @@ const POPUP_TO_SELF = `(() => {
   document.addEventListener('click', (e) => toSelf(e.target.closest && e.target.closest('a[target], area[target]')), true);
   document.addEventListener('submit', (e) => toSelf(e.target), true);
   window.open = (url) => { if (url) location.href = String(url); return null; };
+  // A window.open from a fresh same-origin iframe would sidestep the rewrite. Chromium refuses that popup
+  // (--block-new-web-contents); wrapping the iframe's window lets us record the attempt instead of losing it.
+  const desc = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow');
+  if (desc && desc.get) {
+    Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
+      configurable: true,
+      get() {
+        const w = desc.get.call(this);
+        try {
+          if (w && !w.__promoOpenPatched) {
+            w.__promoOpenPatched = true;
+            w.open = (url) => { if (window.__promoPopupBlocked) window.__promoPopupBlocked(String(url)).catch(() => {}); return null; };
+          }
+        } catch { /* cross-origin window: its open cannot be reached from here */ }
+        return w;
+      },
+    });
+  }
 })();`;
 
 const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
@@ -41,6 +60,10 @@ const originOf = (url) => {
  * navigation leaves `origin`; the caller checks it after every step and fails the flow.
  */
 export async function installOriginGate(context, { origin, gate, mainPage }) {
+  // Popup attempts the page-level patch can see but cannot honour are reported here (see POPUP_TO_SELF).
+  await context.exposeFunction('__promoPopupBlocked', (url) => {
+    gate.blocked?.push({ flow: gate.flow, beat: gate.beat ?? null, url: String(url), kind: 'popup' });
+  });
   await context.addInitScript(POPUP_TO_SELF);
   const violate = (url, page) => {
     gate.violation ??= { origin: originOf(url), url };
@@ -53,8 +76,6 @@ export async function installOriginGate(context, { origin, gate, mainPage }) {
     if (!req.isNavigationRequest()) return route.continue();
     let frame;
     try { frame = req.frame(); } catch { return route.continue(); }
-    // Embedded frames (an iframe widget) are content on the page, not a navigation away from it.
-    if (frame.parentFrame()) return route.continue();
     const page = frame.page();
 
     let url = req.url();
@@ -72,7 +93,14 @@ export async function installOriginGate(context, { origin, gate, mainPage }) {
         return route.abort('failed');
       }
       const location = resp.headers().location;
-      if (!REDIRECT_STATUS.has(resp.status()) || !location) return route.fulfill({ response: resp });
+      if (!REDIRECT_STATUS.has(resp.status()) || !location) {
+        if (url === req.url()) return route.fulfill({ response: resp });
+        // The chain is verified and ends at `url`. Send the browser there with a single 302 so it lands on the
+        // final URL (relative links resolve correctly). Its request is unrouted but targets a checked URL, and the
+        // framenavigated backstop covers a server that answers differently the second time. Cookies set on the
+        // intermediate hops are already in the context's jar, which route.fetch shares with the browser.
+        return route.fulfill({ status: 302, headers: { location: url }, body: '' });
+      }
       let next;
       try {
         next = new URL(location, url).href;
@@ -90,9 +118,8 @@ export async function installOriginGate(context, { origin, gate, mainPage }) {
     return route.abort('failed'); // redirect loop
   });
 
-  // Backstop: even if a navigation slipped past route, a main frame that lands elsewhere fails the flow.
+  // Backstop: even if a navigation slipped past route, any frame that lands elsewhere fails the flow.
   const watch = (page) => page.on('framenavigated', (frame) => {
-    if (frame !== page.mainFrame()) return;
     let u;
     try { u = new URL(frame.url()); } catch { return; }
     if (isHttp(u) && u.origin !== origin) violate(u.href, page);

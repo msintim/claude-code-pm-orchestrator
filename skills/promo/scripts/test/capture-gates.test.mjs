@@ -6,9 +6,10 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { resolveFfmpeg, parseCapabilities } from '../lib/ffmpeg.js';
 import { serveDirs } from '../lib/server.js';
+import { runCapture } from '../capture.mjs';
 import { fixtureSite, runCli, runCliAsync, tmpDir, scriptsDir } from './helpers.mjs';
 
-const { equal, ok, match } = assert;
+const { equal, deepEqual, ok, match } = assert;
 const captureScript = path.join(scriptsDir, 'capture.mjs');
 
 function resolveFullFfmpegSync() {
@@ -39,6 +40,8 @@ before(async () => {
     handlers: {
       '/redirect': redirectTo(param),
       '/hop': redirectTo((req) => `/redirect?to=${encodeURIComponent(param(req))}`),
+      '/old': redirectTo(() => '/sub/landing.html'),
+      '/cookie-hop': (req, res) => { res.writeHead(302, { location: '/sub/landing.html', 'set-cookie': 'hopc=1; Path=/' }); res.end(); },
     },
   });
 });
@@ -113,13 +116,50 @@ for (const [via, beatsFor] of Object.entries(originCases)) {
   });
 }
 
-test('gate 1: a popup that bypasses the page-level rewrite is refused by the browser: no request is sent', { skip }, async () => {
+test('gate 1: a popup that bypasses the page-level rewrite is refused, sends no request and is reported', { skip }, async () => {
   const before = other.requestCount;
-  await runGate({
+  const target = `${other.origin}/landed`;
+  const { r, report } = await runGate({
     flow: 'origin-flow',
-    beats: [{ goto: ext(`${other.origin}/landed`) }, { click: '#bypass' }, { wait: 1500 }, { settle: 'h1' }],
+    beats: [{ goto: ext(target) }, { click: '#bypass' }, { wait: 500 }, { settle: 'h1' }],
   });
   equal(other.requestCount - before, 0, 'the popup request must never reach the other origin');
+  equal(r.status, 0, r.stderr); // nothing was sent, so the flow is not failed
+  deepEqual(report.blockedNavigations, [{ flow: 'origin-flow', beat: 1, url: target, kind: 'popup' }]);
+});
+
+test('gate 1: a cross-origin iframe aborts the flow before any request is sent', { skip }, async () => {
+  const before = other.requestCount;
+  const { r, report, outDir } = await runGate({
+    flow: 'origin-flow', beats: [{ goto: `/embed.html?to=${encodeURIComponent(`${other.origin}/widget`)}` }, { wait: 500 }],
+  });
+  equal(r.status, 1, r.stderr);
+  match(r.stderr, /blocked navigation to http:\/\/127\.0\.0\.1:\d+/);
+  equal(report.failed.kind, 'origin');
+  equal(other.requestCount - before, 0);
+  equal(webms(outDir).length, 0);
+});
+
+test('redirect: a same-origin 302 lands on its final URL and relative links resolve against it', { skip }, async () => {
+  for (const start of ['/old', '/cookie-hop']) {
+    const seen = {};
+    const hooks = {
+      afterAction: async ({ page }) => {
+        seen.url = page.url();
+        seen.rel = await page.evaluate(() => document.getElementById('rel')?.href);
+        seen.cookie = await page.evaluate(() => document.cookie);
+      },
+    };
+    const rep = await runCapture({
+      configPath: writeConfig({ flow: 'redir-flow', beats: [{ goto: start }] }),
+      outDir: tmpDir('out'), logger: { info() {}, error() {}, scrub: (s) => s }, hooks,
+    });
+    equal(rep.status, 'ok', start);
+    equal(seen.url, `${site.origin}/sub/landing.html`, start);
+    equal(seen.rel, `${site.origin}/sub/next.html`, start);
+    deepEqual(rep.flows[0].visited, ['/sub/landing.html'], start);
+    if (start === '/cookie-hop') ok(seen.cookie.includes('hopc=1'), `cookie from the 302 hop reached the browser: ${seen.cookie}`);
+  }
 });
 
 test('gate 1: a protocol-relative login path cannot leave the origin (resolved, not prefix-compared)', { skip }, async () => {

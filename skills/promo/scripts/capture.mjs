@@ -83,9 +83,9 @@ class FlowFailure extends Error {
 
 // Logs in inside a throwaway context: the login page is never recorded and only the resulting session
 // (cookies/localStorage, in memory) reaches the recorded context. The password goes into the page and nowhere else.
-async function performLogin({ browser, flow, config, origin, env, beatTimeout, scrub }) {
+async function performLogin({ browser, flow, config, origin, env, beatTimeout, scrub, blocked }) {
   const { login } = config.staging;
-  const gate = { violation: null };
+  const gate = { violation: null, blocked, flow: flow.name, beat: null };
   const context = await browser.newContext();
   let page;
   try {
@@ -135,13 +135,13 @@ function selectorOf(beat) {
   return typeof v === 'string' ? v : v?.selector;
 }
 
-async function runFlow({ browser, flow, config, origin, outDir, bins, env, logger, hooks, tally, ocr, pii, scrub }) {
+async function runFlow({ browser, flow, config, origin, outDir, bins, env, logger, hooks, tally, ocr, pii, blocked, scrub }) {
   const beatTimeout = Number(env.PROMO_BEAT_TIMEOUT_MS ?? 10000);
   const idleTimeout = Number(env.PROMO_IDLE_TIMEOUT_MS ?? 10000);
   const hide = config.hide ?? [];
   const redact = config.redact ?? [];
   const frameDir = path.join(outDir, `.frames-${flow.name}`);
-  const storageState = config.staging.login ? await performLogin({ browser, flow, config, origin, env, beatTimeout, scrub }) : undefined;
+  const storageState = config.staging.login ? await performLogin({ browser, flow, config, origin, env, beatTimeout, scrub, blocked }) : undefined;
   const context = await browser.newContext({
     viewport: { width: VIEWPORT.w, height: VIEWPORT.h },
     deviceScaleFactor: DEVICE_SCALE_FACTOR,
@@ -151,7 +151,7 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
   let cap;
   try {
     let page;
-    const gate = { violation: null };
+    const gate = { violation: null, blocked, flow: flow.name, beat: null };
     const pending = []; // PII the in-page scanner saw on screen between settles
     const frameLabel = () => `${flow.name}@${round3(cap?.nowT() ?? 0)}s`;
     await installOriginGate(context, { origin, gate, mainPage: () => page });
@@ -381,6 +381,7 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
     for (let index = 0; index < flow.beats.length; index++) {
       const beat = flow.beats[index];
       const t0 = cap.nowT();
+      gate.beat = index;
       let kind;
       const fail = async (e) => {
         if (e instanceof EnvironmentError) return e;
@@ -482,6 +483,7 @@ export async function runCapture({ configPath, outDir, feature, env = process.en
       videoSize: { w: VIEWPORT.w, h: VIEWPORT.h },
     },
     thirdPartyRequests: [],
+    blockedNavigations: [], // popups the browser refused; no request was sent, so they do not fail the run
     flows: [],
     pii: { scanned: 0, hits: [] },
   };
@@ -503,7 +505,7 @@ export async function runCapture({ configPath, outDir, feature, env = process.en
     for (const flow of flows) {
       let result;
       try {
-        result = await runFlow({ browser, flow, config, origin, outDir, bins, env, logger, hooks, tally, ocr, pii: report.pii, scrub });
+        result = await runFlow({ browser, flow, config, origin, outDir, bins, env, logger, hooks, tally, ocr, pii: report.pii, blocked: report.blockedNavigations, scrub });
       } catch (e) {
         if (!(e instanceof FlowFailure)) throw e;
         report.status = 'failed';
