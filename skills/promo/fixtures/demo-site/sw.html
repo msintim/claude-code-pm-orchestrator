@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>SW</title><link rel="stylesheet" href="/site.css"></head>
+<body>
+<main>
+  <h1>Service worker</h1>
+  <div id="slot"></div>
+</main>
+<script>
+  // Registers sw.js (which redirects /sw-target to ?to=) and shows the link once it controls the page.
+  // If workers are blocked the link still appears, so the flow reaches the same click either way.
+  const to = new URLSearchParams(location.search).get('to') || '/';
+  const show = () => { document.getElementById('slot').innerHTML = '<a id="go" href="/sw-target">Go</a>'; };
+  setTimeout(show, 2500); // a blocked worker never becomes ready; the link still appears
+  (async () => {
+    try {
+      await navigator.serviceWorker.register('/sw.js?to=' + encodeURIComponent(to));
+      await navigator.serviceWorker.ready;
+      if (!navigator.serviceWorker.controller) await new Promise((r) => navigator.serviceWorker.addEventListener('controllerchange', r));
+    } catch { /* blocked */ }
+    show();
+  })();
+</script>
+</body>
+</html>

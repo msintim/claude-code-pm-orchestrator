@@ -86,7 +86,8 @@ class FlowFailure extends Error {
 async function performLogin({ browser, flow, config, origin, env, beatTimeout, scrub, blocked }) {
   const { login } = config.staging;
   const gate = { violation: null, blocked, flow: flow.name, beat: null };
-  const context = await browser.newContext();
+  // serviceWorkers 'block': requests a worker makes or answers bypass context.route, so a staging PWA could leave the origin unseen.
+  const context = await browser.newContext({ serviceWorkers: 'block' });
   let page;
   try {
     await installOriginGate(context, { origin, gate, mainPage: () => page });
@@ -146,6 +147,7 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
     viewport: { width: VIEWPORT.w, height: VIEWPORT.h },
     deviceScaleFactor: DEVICE_SCALE_FACTOR,
     reducedMotion: 'no-preference',
+    serviceWorkers: 'block', // see performLogin: workers bypass the origin gate
     storageState,
   });
   let cap;
@@ -416,12 +418,25 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
       beats.push({ index, kind, t0: round3(t0), t1: round3(cap.nowT()), networkIdle });
     }
 
+    // Nothing checks the page after the last beat's own check, so look once more: before the recording stops
+    // and again after OCR (seconds later, with the scanner still running), before any footage is assembled.
+    const finalCheck = async () => {
+      const last = flow.beats.length - 1;
+      await drainPage();
+      const live = await scanDom(page, { redact }).catch(() => []);
+      const frame = frameLabel();
+      for (const h of live) pending.push({ frame, ...h, source: 'dom' });
+      checkGates(last);
+    };
+    await hooks.beforeFinalCheck?.({ flow: flow.name, page });
+    await finalCheck();
     const { frames } = await cap.stop();
     // OCR runs after recording so it cannot stretch a beat; a hit means the footage is never assembled.
     for (const s of settles) {
       const hits = await ocr.scan(path.join(outDir, s.still), { redact });
       if (hits.length) throw piiFailure(s.index, hits.map((h) => ({ frame: s.still, ...h, source: 'ocr' })));
     }
+    await finalCheck();
     const endT = beats.at(-1).t1;
     const video = `${flow.name}.webm`;
     const out = path.join(outDir, video);

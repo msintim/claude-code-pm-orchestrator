@@ -278,3 +278,30 @@ test('login: a good login is not recorded and the session carries into the recor
   for (const f of walk(outDir)) if (/\.(json|txt|log)$/.test(f)) ok(!fs.readFileSync(f, 'utf8').includes(PASS), f);
   ok(!r.stdout.includes(PASS) && !r.stderr.includes(PASS));
 });
+
+test('gate 1: a service worker cannot navigate to another origin behind the route (workers are blocked)', { skip }, async () => {
+  const before = other.requestCount;
+  await runGate({
+    flow: 'origin-flow',
+    beats: [{ goto: `/sw.html?to=${encodeURIComponent(`${other.origin}/landed`)}` }, { click: '#go' }, { wait: 1000 }],
+  });
+  equal(other.requestCount - before, 0, 'the worker must not reach the other origin');
+});
+
+test('gate 3: PII that appears after the last beat has been checked still fails the run', { skip }, async () => {
+  const hooks = {
+    // Runs after the last beat's own gate check, before the final one.
+    beforeFinalCheck: async ({ page }) => {
+      await page.evaluate(() => { document.body.append('Contact jane.doe@example.com'); });
+    },
+  };
+  const outDir = tmpDir('out');
+  const rep = await runCapture({
+    configPath: writeConfig({ flow: 'late-flow', beats: [{ goto: '/index.html' }] }),
+    outDir, logger: { info() {}, error() {}, scrub: (s) => s }, hooks,
+  });
+  equal(rep.status, 'failed');
+  equal(rep.failed.kind, 'pii');
+  ok(rep.pii.hits.some((h) => h.kind === 'email'));
+  equal(webms(outDir).length, 0);
+});
