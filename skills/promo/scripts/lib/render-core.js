@@ -12,7 +12,7 @@ import { safeBand } from './geometry.js';
 import {
   DEFAULT_DUCK_DB, DEFAULT_GAIN_DB, buildAudioFilter, duckIntervals,
 } from './audio.js';
-import { alignmentReport, loadCues, resolveTrack } from './cues.js';
+import { alignmentReport, attributionFor, loadCues, resolveTrack } from './cues.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(here, '..', '..', 'templates');
@@ -221,7 +221,10 @@ async function planAudio(music, timeline, scenes) {
       '-filter_complex', `[1:a]${filter}[a]`, '-map', '0:v', '-map', '[a]',
       '-c:a', 'aac', '-b:a', '192k', '-shortest', '-t', String(timeline.total),
     ],
-    report: { track: music.track, gainDb, duckDb, tempo: cues.tempo, duckIntervals: intervals },
+    report: {
+      track: music.track, gainDb, duckDb, tempo: cues.tempo, duckIntervals: intervals,
+      attribution: await attributionFor(music.track, { musicDir: music.musicDir }),
+    },
     alignment: alignmentReport(boundaries, cues),
   };
 }

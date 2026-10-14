@@ -59,6 +59,36 @@ export function alignmentReport(boundaries, cues, tol = MAJOR_TOL) {
   });
 }
 
+/**
+ * The credit line for a bundled track, read from the LICENSES.md table row
+ * `| track | title | author | source URL | licence | retrieved |`: `"Title" by Author, CC-BY-4.0, <url>`.
+ * null for a CC0 track (no credit required) and for a directory without a LICENSES.md (user-supplied
+ * music is not tracked). A LICENSES.md that has no row for the track is an error: the licence is unproven.
+ */
+export async function attributionFor(track, { musicDir } = {}) {
+  if (typeof track !== 'string' || track === '' || /[\\/]|\.\./.test(track)) {
+    throw new Error(`music track "${track}" must be a plain track name, not a path`);
+  }
+  const dir = musicDir ?? process.env.PROMO_MUSIC_DIR ?? DEFAULT_MUSIC_DIR;
+  const file = path.join(dir, 'LICENSES.md');
+  let text;
+  try {
+    text = await fs.promises.readFile(file, 'utf8');
+  } catch (e) {
+    if (e.code === 'ENOENT') return null;
+    throw new Error(`cannot read ${file}: ${e.message}`);
+  }
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.startsWith('|')) continue;
+    const cells = line.split('|').slice(1, -1).map((c) => c.trim());
+    if (cells[0] !== track) continue;
+    const [, title, author, url, licence] = cells;
+    if (!title || !author || !url || !licence) throw new Error(`${file}: the row for "${track}" is incomplete`);
+    return licence === 'CC0' ? null : `"${title}" by ${author}, ${licence}, ${url}`;
+  }
+  throw new Error(`${file} has no row for "${track}": add its title, author, source URL, licence and retrieved date`);
+}
+
 /** Locate a track's audio file and its cues file: <musicDir>/<track>.mp3 (else .wav) and <track>.cues.json. */
 export function resolveTrack(track, { musicDir } = {}) {
   if (typeof track !== 'string' || track === '' || /[\\/]|\.\./.test(track)) {
