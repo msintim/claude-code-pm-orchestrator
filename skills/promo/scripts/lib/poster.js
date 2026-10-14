@@ -43,7 +43,8 @@ export async function bakePoster({ ffmpeg, ffprobe, video, still, outVideo, outJ
   try {
     await run(ffmpeg, [
       '-hide_banner', '-y', '-i', video, '-i', still,
-      '-filter_complex', "[0:v][1:v]overlay=0:0:enable='eq(n,0)'[v]",
+      // format=rgb24 drops any alpha channel so a translucent still replaces frame 0 instead of blending into it.
+      '-filter_complex', "[1:v]format=rgb24[s];[0:v][s]overlay=0:0:enable='eq(n,0)'[v]",
       '-map', '[v]', '-map', '0:a?',
       '-c:v', ENCODE.codec, '-crf', String(ENCODE.crf), '-preset', ENCODE.preset, '-pix_fmt', ENCODE.pix_fmt,
       '-c:a', 'copy', '-movflags', ENCODE.movflags, temp,

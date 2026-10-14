@@ -88,6 +88,20 @@ test('frame 0 equals the still (PSNR > 40 dB) and frame 5 equals the source fram
   assert.ok(source0 < 25, 'the still must differ from the source frame 0 for this check to mean anything');
 });
 
+test('an RGBA still with partial transparency is flattened: frame 0 matches the opaque still (PSNR > 40 dB)', async () => {
+  const translucent = path.join(dir, 'translucent.png');
+  await run(bins.ffmpeg, [
+    '-hide_banner', '-y', '-i', still, '-vf', 'format=rgba,colorchannelmixer=aa=0.5', '-frames:v', '1', '-pix_fmt', 'rgba', translucent,
+  ]);
+  assert.equal(stream(await probe(translucent), 'video').pix_fmt, 'rgba');
+  const out = path.join(dir, 'alpha.mp4');
+  await bakePoster({
+    ffmpeg: bins.ffmpeg, ffprobe: bins.ffprobe, video: withAudio, still: translucent, outVideo: out, outJpg: path.join(dir, 'alpha.jpg'),
+  });
+  const f0 = await psnr(await frameAt(out, 0, 'alpha-0.png'), still);
+  assert.ok(f0 > 40, `frame 0 PSNR ${f0}`);
+});
+
 test('output is faststart (moov before mdat)', async () => {
   const out = path.join(dir, 'fast.mp4');
   await bakePoster({
