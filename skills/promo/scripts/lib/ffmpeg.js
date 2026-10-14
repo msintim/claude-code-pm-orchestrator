@@ -8,8 +8,8 @@ export const INSTALL_HINT =
   'A full FFmpeg is required: winget install Gyan.FFmpeg | brew install ffmpeg | apt install ffmpeg (or set PROMO_FFMPEG to its directory).';
 
 export class FfmpegNotFoundError extends Error {
-  constructor() {
-    super(INSTALL_HINT);
+  constructor(message = INSTALL_HINT) {
+    super(message);
     this.name = 'FfmpegNotFoundError';
   }
 }
@@ -48,6 +48,11 @@ export function resolveFfmpeg({ env = process.env, platform = process.platform, 
       const ffprobe = path.join(path.dirname(ffmpeg), ffprobeName);
       if (exists(ffprobe)) return { ffmpeg, ffprobe };
     }
+    // An explicit override that resolves to nothing is a configuration error, not a cue to guess from PATH.
+    const bad = String(override).replace(/\s+/g, ' ');
+    throw new FfmpegNotFoundError(
+      `PROMO_FFMPEG was ignored because "${bad}" has no usable ffmpeg and ffprobe (not falling back to PATH). ${INSTALL_HINT}`,
+    );
   }
 
   const ffmpeg = findOnPath(ffmpegName);

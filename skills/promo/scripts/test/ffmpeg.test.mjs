@@ -76,6 +76,25 @@ test('missing everywhere throws FfmpegNotFoundError with a one-line hint', () =>
   );
 });
 
+test('PROMO_FFMPEG set but unusable throws and does not fall back to PATH', () => {
+  const bad = path.join('/opt/missing');
+  const onPath = new Set([path.join('/usr/bin', 'ffmpeg'), path.join('/usr/bin', 'ffprobe')]);
+  assert.throws(
+    () => resolveFfmpeg({ env: { PROMO_FFMPEG: bad, PATH: '/usr/bin' }, platform: 'linux', exists: (p) => onPath.has(p) }),
+    (e) =>
+      e instanceof FfmpegNotFoundError &&
+      !/\n/.test(e.message) &&
+      e.message.includes(bad) &&
+      e.message.includes('PROMO_FFMPEG was ignored'),
+  );
+});
+
+test('empty PROMO_FFMPEG falls through to PATH', () => {
+  const known = new Set([path.join('/usr/bin', 'ffmpeg'), path.join('/usr/bin', 'ffprobe')]);
+  const r = resolveFfmpeg({ env: { PROMO_FFMPEG: '', PATH: '/usr/bin' }, platform: 'linux', exists: (p) => known.has(p) });
+  assert.equal(r.ffmpeg, path.join('/usr/bin', 'ffmpeg'));
+});
+
 test('INSTALL_HINT is one line and names PROMO_FFMPEG', () => {
   assert.ok(!/\n/.test(INSTALL_HINT));
   assert.ok(INSTALL_HINT.includes('PROMO_FFMPEG'));
