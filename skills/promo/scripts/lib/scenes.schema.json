@@ -1,0 +1,124 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "fps", "master", "brand", "scenes"],
+  "properties": {
+    "version": { "const": 1 },
+    "fps": { "const": 30 },
+    "master": { "const": { "w": 1920, "h": 1080 } },
+    "brand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "accent", "font", "theme"],
+      "properties": {
+        "primary": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "accent": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "font": { "type": "string", "minLength": 1 },
+        "theme": { "enum": ["light", "dark"] }
+      }
+    },
+    "music": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["track"],
+      "properties": {
+        "track": { "type": "string", "minLength": 1 },
+        "gain_db": { "type": "number", "maximum": 0 },
+        "duck_db": { "type": "number", "maximum": 0 }
+      }
+    },
+    "scenes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": { "enum": ["hook", "title-card", "feature-callout", "footage", "outro"] }
+        },
+        "allOf": [
+          { "if": { "type": "object", "required": ["type"], "properties": { "type": { "const": "hook" } } }, "then": { "$ref": "#/$defs/hook" } },
+          { "if": { "type": "object", "required": ["type"], "properties": { "type": { "const": "title-card" } } }, "then": { "$ref": "#/$defs/titleCard" } },
+          { "if": { "type": "object", "required": ["type"], "properties": { "type": { "const": "feature-callout" } } }, "then": { "$ref": "#/$defs/featureCallout" } },
+          { "if": { "type": "object", "required": ["type"], "properties": { "type": { "const": "footage" } } }, "then": { "$ref": "#/$defs/footage" } },
+          { "if": { "type": "object", "required": ["type"], "properties": { "type": { "const": "outro" } } }, "then": { "$ref": "#/$defs/outro" } }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "transition": { "enum": ["cut", "dip-to-brand", "slide", "none"] },
+    "duration": { "type": "number", "exclusiveMinimum": 0 },
+    "hook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "duration", "text", "transition"],
+      "properties": {
+        "type": { "const": "hook" },
+        "duration": { "$ref": "#/$defs/duration" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "transition": { "$ref": "#/$defs/transition" }
+      }
+    },
+    "titleCard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "duration", "title", "transition"],
+      "properties": {
+        "type": { "const": "title-card" },
+        "duration": { "$ref": "#/$defs/duration" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "sub": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "transition": { "$ref": "#/$defs/transition" }
+      }
+    },
+    "featureCallout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "duration", "title", "body", "transition"],
+      "properties": {
+        "type": { "const": "feature-callout" },
+        "duration": { "$ref": "#/$defs/duration" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "body": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "transition": { "$ref": "#/$defs/transition" }
+      }
+    },
+    "footage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "flow", "in", "out", "caption", "transition"],
+      "properties": {
+        "type": { "const": "footage" },
+        "flow": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "in": { "type": "number", "minimum": 0 },
+        "out": { "type": "number", "exclusiveMinimum": 0 },
+        "focus": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "w", "h"],
+          "properties": {
+            "x": { "type": "number", "minimum": 0 },
+            "y": { "type": "number", "minimum": 0 },
+            "w": { "type": "number", "exclusiveMinimum": 0 },
+            "h": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "caption": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "transition": { "$ref": "#/$defs/transition" }
+      }
+    },
+    "outro": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "duration", "text", "transition"],
+      "properties": {
+        "type": { "const": "outro" },
+        "duration": { "$ref": "#/$defs/duration" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 30 },
+        "sub": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "transition": { "$ref": "#/$defs/transition" }
+      }
+    }
+  }
+}
