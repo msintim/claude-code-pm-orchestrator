@@ -8,6 +8,12 @@ Derived files:
 
 - `tools/analyze_music_cues.py` (maintainer-only music cue analyser)
 - `tools/pyproject.toml` (its dependency list)
+- `SKILL.md` (creative laws, rubric, tones and delivery rules adapted from brag-slim)
+- `references/plan.md` (storyboard, reading time, what to show and transition vocabulary adapted from brag's step-2-plan)
+- `references/compose.md` (music cue schema, alignment guidance and fallback adapted from brag's audio reference)
+- `references/deliver.md` (poster and share-copy rules adapted from brag's step-4-deliver)
+
+Each of the four documentation files ends with the line "Portions adapted from latent-spaces/brag (MIT), Copyright (c) 2026 Shunit Haviv Hakimi." No brag audio or other assets are included.
 
 MIT License
 

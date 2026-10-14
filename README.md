@@ -14,12 +14,14 @@ This is extracted and genericized from a real multi-project setup. The specific 
 - **`agents/opus-security-auditor.md`** — pre-deployment security gate.
 - **`agents/opus-architect.md`** — architecture adjudication / ADRs for high-stakes design decisions.
 - **`agents/Explore.md`** — read-only codebase search agent (overrides Claude Code's built-in `Explore`). Runs on the Standard tier instead of inheriting the PM's (more expensive) model; pass `model: "haiku"` per call for pure file/symbol lookups. It uses the floating `sonnet` alias on purpose: it isn't a gate, so tracking the latest Sonnet is fine. Its tools are an allowlist (`Read, Grep, Glob, Bash`), so it gets none of your MCP tools; Bash stays, so "read-only" is enforced by its prompt, not by permissions.
+- **`skills/promo/`** — the `/promo` skill: records a web app's staging flows with Playwright and renders 15-30 s launch videos (16:9 master, 1:1, 9:16 reel, hero loop, posters) with FFmpeg, behind origin and PII gates. See [Skills](#skills).
 
 ## Requirements
 
 - **Claude Code v2.1.271 or later** (`claude --version`). The Explore override relies on `omitClaudeMd` (added in v2.1.271 — older versions silently ignore it and load your whole PM prompt into every search), and older releases let `CLAUDE_CODE_SUBAGENT_MODEL` override the gate agents' pinned models.
 - **v2.1.277+ recommended** — the first release that reads `AGENTS.md` directly.
 - Python 3 only if you want to run the validator: `pip install -r requirements.txt && python scripts/validate.py`.
+- Node 22+, full FFmpeg (with `ffprobe`) and Playwright Chromium, only needed for `/promo`.
 
 ## Install
 
@@ -42,6 +44,43 @@ This is extracted and genericized from a real multi-project setup. The specific 
    ```
    Agents that set their own `model` (like the gate agents) keep it. Never set `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` — it overrides those pins by design.
 5. (Optional) Set up the memory vault — see below. Everything else works without it; you just lose cross-session continuity.
+
+## Skills
+
+`skills/promo/` is the `/promo` skill. Install it as a **real copy**, not a symlink (symlinks break on Windows without Developer Mode). Copy it to both `~/.claude/skills/promo/` (Claude Code) and `~/.agents/skills/promo/` (Codex, Cursor, Gemini CLI and other Agent Skills readers).
+
+PowerShell:
+
+```powershell
+Copy-Item -Recurse -Force skills/promo "$HOME/.claude/skills/promo"
+Copy-Item -Recurse -Force skills/promo "$HOME/.agents/skills/promo"
+```
+
+bash:
+
+```bash
+mkdir -p ~/.claude/skills ~/.agents/skills
+cp -R skills/promo ~/.claude/skills/promo
+cp -R skills/promo ~/.agents/skills/promo
+```
+
+If a copy already exists, remove it first so no stale files remain. Then, inside each installed copy:
+
+```bash
+cd ~/.claude/skills/promo
+(cd scripts && npm ci)
+node scripts/doctor.mjs
+```
+
+`node scripts/doctor.mjs` checks Node, FFmpeg (on PATH, or `PROMO_FFMPEG` set to its bin directory), Playwright Chromium and the OCR data. Fix every `FAIL` line it prints; if Chromium is missing, run `npx playwright install chromium`. The first run also needs a per-product `.promo/promo.yaml`; start from `skills/promo/examples/personal-website.promo.yaml`.
+
+Add one line to your workspace `AGENTS.md` so every agent finds it:
+
+```markdown
+- /promo: product launch videos. Skill at ~/.claude/skills/promo (or ~/.agents/skills/promo); per-product config at <repo>/.promo/promo.yaml.
+```
+
+Bundled music (`skills/promo/assets/music/`) may be empty in this build. Without it, pass `--music-dir` with any licensed track plus its `.cues.json`, or render without music. See `skills/promo/SKILL.md` for the full workflow.
 
 ## The memory vault (optional but recommended)
 

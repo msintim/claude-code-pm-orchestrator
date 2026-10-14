@@ -1,0 +1,41 @@
+# First-run guide for /promo: a public site with no login, run against the local dev server.
+# Copy to <product repo>/.promo/promo.yaml and adapt.
+#
+# Start the site first (here: `npm run dev`, which serves http://localhost:3000).
+# Manrope must be installed on this machine, or change brand.font. The renderer never fetches fonts.
+#
+# The footer on every page and the contact section show a real email address, and the PII gate
+# fails the run when it sees one. That is the gate working. The fix is hide + redact below,
+# not editing around it.
+version: 1
+product: Michael Sintim-Koree
+tagline: IT professional, writer and builder
+brand:
+  primary: "#c6b593"   # aged brass
+  accent: "#d9d7ce"    # bone soft
+  font: Manrope
+  theme: dark
+staging:
+  url: http://localhost:3000   # the ONLY origin capture may touch
+hide:
+  - 'a[href^="mailto:"]'
+  - "#contact"
+  - nextjs-portal              # the Next.js dev overlay element; harmless if absent
+pii_policy: public-content-only
+redact:
+  - michael.sintimkoree        # the address local part, so any leak is caught by the scan
+flows:
+  - name: home-tour
+    feature: portfolio
+    beats:
+      - goto: /
+      - settle: "#projects"
+      - scroll: "#blog"
+      - settle: "#blog"
+  - name: blog-read
+    feature: blog
+    beats:
+      - goto: /blog
+      - settle: ".post-grid"
+      - click: ".post-grid a.post-card >> nth=0"
+      - settle: "h1"
