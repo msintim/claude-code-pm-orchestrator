@@ -169,6 +169,76 @@ test('a page that never reaches network idle does not hang: beat proceeds with n
   ok(Date.now() - started < 60_000);
 });
 
+// A config with a single custom flow, reusing the fixture's header (brand, staging, hide, ...).
+function flowConfig(origin, beatsYaml, name = 'custom') {
+  const text = fs.readFileSync(materializeConfig(template, { ORIGIN: origin }), 'utf8');
+  const file = path.join(tmpDir('config'), 'promo.yaml');
+  fs.writeFileSync(file, `${text.slice(0, text.indexOf('flows:'))}flows:
+  - name: ${name}
+    beats:
+${beatsYaml}`);
+  return file;
+}
+
+test('cursor is restored at its last position right after a navigation, before the hold', { skip }, async () => {
+  const seen = [];
+  const hooks = {
+    afterAction: async ({ beatIndex, page }) => {
+      seen[beatIndex] = await page.evaluate(() => {
+        const el = document.getElementById('__promo-cursor');
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), opacity: getComputedStyle(el).opacity };
+      });
+    },
+  };
+  const file = flowConfig(server.origin,
+    `      - goto: /payments.html
+      - hover: "text=Record payment"
+      - goto: /tenants.html
+`);
+  const rep = await runCapture({ configPath: file, outDir: tmpDir('out'), logger: quiet, hooks });
+  equal(rep.status, 'ok');
+  ok(seen[1] && seen[1].opacity === '1', 'cursor shown after hover');
+  ok(seen[2], 'cursor element exists after goto');
+  equal(seen[2].opacity, '1');
+  deepEqual({ x: seen[2].x, y: seen[2].y }, { x: seen[1].x, y: seen[1].y });
+});
+
+test('covered/disabled element: selector failure with failure screenshot', { skip }, async () => {
+  const outDir = tmpDir('out');
+  const file = flowConfig(server.origin, `      - goto: /payments.html
+      - click: "#locked"
+`);
+  const r = await runCliAsync(captureScript, ['--config', file, '--out', outDir], { PROMO_BEAT_TIMEOUT_MS: '5000' });
+  equal(r.status, 3, r.stderr);
+  match(r.stderr, /custom.*beat 1.*#locked/s);
+  ok(fs.existsSync(path.join(outDir, 'failure-custom-beat1.png')));
+  const report = JSON.parse(fs.readFileSync(path.join(outDir, 'report.json'), 'utf8'));
+  equal(report.failed.kind, 'selector');
+  equal(report.failed.screenshot, 'failure-custom-beat1.png');
+});
+
+test('navigation that never responds: kind navigation, exit 3, screenshot and report written', { skip }, async () => {
+  const hang = await serveDirs([{ prefix: '/', root: fixtureSite }], { handlers: { '/hang': () => {} } });
+  try {
+    const outDir = tmpDir('out');
+    const file = flowConfig(hang.origin, `      - goto: /hang
+`);
+    const r = await runCliAsync(captureScript, ['--config', file, '--out', outDir], { PROMO_BEAT_TIMEOUT_MS: '1500' });
+    equal(r.status, 3, r.stderr);
+    match(r.stderr, /custom.*beat 0.*goto/s);
+    const report = JSON.parse(fs.readFileSync(path.join(outDir, 'report.json'), 'utf8'));
+    equal(report.status, 'failed');
+    equal(report.failed.kind, 'navigation');
+    equal(report.failed.beatIndex, 0);
+    ok(fs.existsSync(path.join(outDir, report.failed.screenshot)));
+    ok(!fs.readdirSync(outDir).some((n) => n.startsWith('.frames')), 'frame dir removed on failure');
+  } finally {
+    await hang.close();
+  }
+});
+
 test('createLogger scrubs secrets from everything written', () => {
   const log = createLogger({ secrets: ['hunter2', ''] });
   equal(log.scrub('pw=hunter2 and hunter2'), 'pw=*** and ***');

@@ -22,6 +22,8 @@ export class UsageError extends Error {}
 /** The environment cannot run a capture (browser missing): exit 2. */
 export class EnvironmentError extends Error {}
 
+// Best-effort cleanup step: never throws, never waits longer than `ms` (a hung navigation can block these).
+const within = (p, ms) => Promise.race([Promise.resolve(p).catch(() => {}), new Promise((r) => setTimeout(r, ms))]);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const round3 = (n) => Math.round(n * 1000) / 1000;
 const beatKind = (beat) => Object.keys(beat)[0];
@@ -58,6 +60,24 @@ class FlowFailure extends Error {
   }
 }
 
+// Anything a beat throws that is not already a FlowFailure: an actionability timeout is a selector
+// problem (covered, disabled, detached); everything else (navigation timeout, HTTP/network error) is 'navigation'.
+function classifyBeatError(e, flow, beatIndex, beat, beatTimeout) {
+  const kind = beatKind(beat);
+  const sel = selectorOf(beat);
+  const first = String(e.message).split(/\r?\n/)[0];
+  if (e.name === 'TimeoutError' && sel && kind !== 'goto') {
+    return new FlowFailure({
+      flow, beatIndex, kind: 'selector',
+      message: `flow "${flow}" beat ${beatIndex} (${kind}): selector "${sel}" could not be acted on within ${beatTimeout} ms: ${first}`,
+    });
+  }
+  return new FlowFailure({
+    flow, beatIndex, kind: 'navigation',
+    message: `flow "${flow}" beat ${beatIndex} (${kind}) failed: ${first}`,
+  });
+}
+
 function selectorOf(beat) {
   const v = beat[beatKind(beat)];
   return typeof v === 'string' ? v : v?.selector;
@@ -73,6 +93,7 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
     deviceScaleFactor: DEVICE_SCALE_FACTOR,
     reducedMotion: 'no-preference',
   });
+  let cap;
   try {
     await context.addInitScript(CURSOR_INIT_SCRIPT);
     if (hide.length) await context.addInitScript(hideInitScript(hide));
@@ -98,7 +119,7 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
     context.on('requestfinished', done);
     context.on('requestfailed', done);
 
-    const cap = await startFrameCapture(page, {
+    cap = await startFrameCapture(page, {
       dir: frameDir,
       size: { width: VIEWPORT.w * DEVICE_SCALE_FACTOR, height: VIEWPORT.h * DEVICE_SCALE_FACTOR },
       quality: 90,
@@ -167,6 +188,12 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
         });
       }
       const box = await loc.boundingBox();
+      if (!box) {
+        throw new FlowFailure({
+          flow: flow.name, beatIndex: index, kind: 'selector',
+          message: `flow "${flow.name}" beat ${index} (${kind}): selector "${sel}" has no bounding box`,
+        });
+      }
       return { loc, center: { x: box.x + box.width / 2, y: box.y + box.height / 2 } };
     };
 
@@ -255,24 +282,19 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
       try {
         kind = await act(beat, index);
       } catch (e) {
-        if (e instanceof FlowFailure) {
-          const shot = `failure-${flow.name}-beat${index}.png`;
-          await page.screenshot({ path: path.join(outDir, shot) }).then(() => { e.screenshot = shot; }, () => {});
-          throw e;
-        }
         if (e instanceof EnvironmentError) throw e;
-        const sel = selectorOf(beat);
-        if (e.name === 'TimeoutError' && sel && beatKind(beat) !== 'goto') {
-          throw new FlowFailure({
-            flow: flow.name, beatIndex: index, kind: 'selector',
-            message: `flow "${flow.name}" beat ${index} (${beatKind(beat)}): selector "${sel}" timed out within ${beatTimeout} ms`,
-          });
-        }
-        throw new Error(`flow "${flow.name}" beat ${index} (${beatKind(beat)}) failed: ${e.message.split('\n')[0]}`);
+        const failure = e instanceof FlowFailure ? e : classifyBeatError(e, flow.name, index, beat, beatTimeout);
+        const shot = `failure-${flow.name}-beat${index}.png`;
+        // A hung navigation blocks screenshots; cancel it first (the shot is then blank, but still marks the failure), and never wait long on a failure artifact.
+        if (failure.kind === 'navigation') await within(page.goto('about:blank', { timeout: 2000 }), 3000);
+        await page.screenshot({ path: path.join(outDir, shot), timeout: 5000 }).then(() => { failure.screenshot = shot; }, () => {});
+        throw failure;
       }
-      const networkIdle = await waitIdle();
-      await sleep(HOLD_MS);
       await restoreCursor();
+      await hooks.afterAction?.({ flow: flow.name, beatIndex: index, page });
+      const networkIdle = await waitIdle();
+      await restoreCursor(); // a navigation that began late (click) is caught here, still before the hold
+      await sleep(HOLD_MS);
       beats.push({ index, kind, t0: round3(t0), t1: round3(cap.nowT()), networkIdle });
     }
 
@@ -293,8 +315,9 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
       settles,
     };
   } finally {
-    await context.close().catch(() => {});
-    fs.rmSync(frameDir, { recursive: true, force: true });
+    await within(cap?.stop(), 5000); // idempotent on success; on failure lets pending frame writes finish
+    await within(context.close(), 5000);
+    try { fs.rmSync(frameDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch { /* never mask the original error */ }
   }
 }
 
@@ -360,7 +383,7 @@ export async function runCapture({ configPath, outDir, feature, env = process.en
   return report;
 }
 
-const EXIT_BY_KIND = { selector: 3 };
+const EXIT_BY_KIND = { selector: 3, navigation: 3 };
 
 async function main(argv) {
   const logger = createLogger();
