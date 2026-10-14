@@ -42,3 +42,11 @@ test('every check has a name, boolean ok and a detail string', async () => {
     assert.equal(typeof c.detail, 'string');
   }
 });
+
+test('doctor confirms the vendored OCR data is present', async () => {
+  const checks = await collectChecks({ env: { PATH: '' } });
+  const tessdata = checks.find((c) => c.name === 'tessdata');
+  assert.ok(tessdata);
+  assert.equal(tessdata.ok, true);
+  assert.ok(tessdata.detail.includes('eng.traineddata'));
+});

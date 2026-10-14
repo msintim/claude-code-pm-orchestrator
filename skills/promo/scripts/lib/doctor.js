@@ -1,5 +1,7 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { chromium } from 'playwright';
+import { TESSDATA_DIR } from './pii.js';
 import { INSTALL_HINT, FfmpegNotFoundError, resolveFfmpeg, checkCapabilities } from './ffmpeg.js';
 
 const MIN_NODE_MAJOR = 22;
@@ -47,6 +49,21 @@ function checkChromium() {
   }
 }
 
+const MIN_TESSDATA_BYTES = 1024 * 1024;
+
+function checkTessdata() {
+  const file = path.join(TESSDATA_DIR, 'eng.traineddata');
+  const fix = 'Restore skills/promo/scripts/vendor/tessdata/eng.traineddata (see the README beside it)';
+  try {
+    const { size } = fs.statSync(file);
+    return size > MIN_TESSDATA_BYTES
+      ? { name: 'tessdata', ok: true, detail: `${file} (${size} bytes)` }
+      : { name: 'tessdata', ok: false, detail: `${file} is only ${size} bytes`, fix };
+  } catch {
+    return { name: 'tessdata', ok: false, detail: `missing ${file}`, fix };
+  }
+}
+
 export async function collectChecks({ env = process.env } = {}) {
-  return [checkNode(), await checkFfmpeg(env), checkChromium()];
+  return [checkNode(), await checkFfmpeg(env), checkChromium(), checkTessdata()];
 }
