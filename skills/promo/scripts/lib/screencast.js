@@ -3,6 +3,14 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { run } from './ffmpeg.js';
 
+// Fidelity spike (test/fidelity.probe.mjs, playwright 1.64.1, Chromium 1248, Windows, 2026-10-14):
+//   viewport 1920x1080, deviceScaleFactor 2, screencast size 3840x2160, quality 90, CSS animation + cursor motion.
+//   - medianFps 60.26 (212 frames in ~3.5 s). Meets the >= 30 acceptance bar.
+//   - delivered JPEG is 1920x1080 (ffprobe), NOT 3840x2160: the size option does not upscale past the CSS
+//     viewport, so DSF 2 does not raise screencast resolution. Meets the >= 1920x1080 bar; 4K would need
+//     the CDP Page.startScreencast fallback or a larger viewport.
+//   - onFrame `timestamp` is Unix epoch milliseconds as a float (e.g. 1791997668630.8), not seconds since
+//     start; frame.viewportWidth/Height report the CSS viewport. We ignore it and use the Node clock below.
 // Clock: Node-side performance.now() at onFrame arrival, in seconds since the first frame.
 // Before the first frame arrives nowT() is 0, so early beat timestamps land on the first frame.
 export async function startFrameCapture(page, { dir, size, quality = 90 }) {

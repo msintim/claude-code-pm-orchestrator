@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Payments</title><link rel="stylesheet" href="/site.css"></head>
+<body>
+<main>
+  <h1>Payments</h1>
+  <div class="pulse"></div>
+  <p><button id="record">Record payment</button></p>
+  <div id="rows"></div>
+</main>
+<script>
+  document.getElementById('record').addEventListener('click', () => {
+    document.getElementById('rows').innerHTML = '<div class="payment-row recorded">Payment recorded</div>';
+  });
+</script>
+</body>
+</html>

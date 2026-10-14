@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Tenants</title><link rel="stylesheet" href="/site.css"></head>
+<body>
+<main>
+  <h1>New tenant</h1>
+  <div class="pulse"></div>
+  <p><input id="name" placeholder="Tenant name"></p>
+  <p><button id="save">Save tenant</button></p>
+  <div id="out"></div>
+</main>
+<div class="cookie-banner">We use cookies. <button>Accept</button></div>
+<script>
+  document.getElementById('save').addEventListener('click', () => {
+    document.getElementById('out').innerHTML = '<div class="toast-success">Tenant saved</div>';
+  });
+</script>
+</body>
+</html>
