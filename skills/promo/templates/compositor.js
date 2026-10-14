@@ -196,6 +196,7 @@ async function renderFrame(t) {
 
 window.__promo = { init, renderFrame };
 
+// Test seam: the renderer drives window.__promo directly; render.test.mjs posts messages to exercise the frame-error path.
 window.addEventListener('message', async (event) => {
   const msg = event.data;
   if (event.origin !== location.origin || msg?.type !== 'render') return;

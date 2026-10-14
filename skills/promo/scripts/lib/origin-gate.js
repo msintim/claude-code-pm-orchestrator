@@ -75,7 +75,14 @@ export async function installOriginGate(context, { origin, gate, mainPage }) {
     const req = route.request();
     if (!req.isNavigationRequest()) return route.continue();
     let frame;
-    try { frame = req.frame(); } catch { return route.continue(); }
+    try {
+      frame = req.frame();
+    } catch {
+      // No frame to attribute it to: let it through only when it stays on staging; never wave a navigation off-origin.
+      if (originOf(req.url()) === origin) return route.continue();
+      gate.violation ??= { origin: originOf(req.url()), url: req.url() };
+      return route.abort('blockedbyclient');
+    }
     const page = frame.page();
 
     let url = req.url();

@@ -103,16 +103,6 @@ export async function scanDom(page, { redact = [] } = {}) {
 
 export const TESSDATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'vendor', 'tessdata');
 
-export class PiiGateError extends Error {
-  constructor(message, { frame, hits, source } = {}) {
-    super(message);
-    this.name = 'PiiGateError';
-    this.frame = frame;
-    this.hits = hits;
-    this.source = source;
-  }
-}
-
 export async function createOcr({ langPath = TESSDATA_DIR } = {}) {
   // tesseract.js falls back to a CDN download for a missing file only when no
   // langPath is given; the explicit check keeps the failure loud either way.

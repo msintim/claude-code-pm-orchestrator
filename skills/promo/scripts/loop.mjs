@@ -29,7 +29,8 @@ async function buildSource({ ffmpeg, scenes, captureDir, outFile }) {
     args.push('-ss', String(scene.in), '-t', String(scene.out - scene.in), '-i', path.join(captureDir, `${scene.flow}.webm`));
     const { rect } = cropForRatio(scene.focus, SOURCE, SIZE);
     const even = (v) => Math.max(2, 2 * Math.round(v / 2));
-    chains.push(`[${i}:v]crop=${even(rect.w)}:${even(rect.h)}:${Math.round(rect.x)}:${Math.round(rect.y)},`
+    // The crop rect is in SOURCE (CSS) pixels; the decoded video can be larger (device scale), so normalise to SOURCE first.
+    chains.push(`[${i}:v]scale=${SOURCE.w}:${SOURCE.h}:flags=bicubic,crop=${even(rect.w)}:${even(rect.h)}:${Math.round(rect.x)}:${Math.round(rect.y)},`
       + `scale=${SIZE.w}:${SIZE.h}:flags=bicubic,fps=${FPS},setsar=1,format=yuv420p,setpts=PTS-STARTPTS[v${i}]`);
   });
   const joined = scenes.map((_, i) => `[v${i}]`).join('');
@@ -98,22 +99,25 @@ export async function main(argv, { load = loadScenes } = {}) {
     const flowDurations = readCaptureDurations(values.capture);
     const doc = await load(values.scenes, { flowDurations });
     const footage = doc.scenes.filter((s) => s.type === 'footage');
-    if (footage.length === 0) throw new UsageError(`no footage scenes in ${values.scenes}; the hero loop is built from footage`);
     assertFootageFiles(doc.scenes, values.capture);
     const { ffmpeg } = await requireFfmpeg();
 
     const outDir = path.resolve(values.out);
-    const workDir = path.join(outDir, 'work');
+    // Not render.mjs's `work`: that one holds render frames (--keep-frames, a parallel render) and must survive this.
+    const workDir = path.join(outDir, 'work-hero');
     fs.mkdirSync(workDir, { recursive: true });
-    const source = path.join(workDir, 'source.mkv');
-    await buildSource({ ffmpeg, scenes: footage, captureDir: values.capture, outFile: source });
-    const diffs = await sourceDiffs({ ffmpeg, source, rawFile: path.join(workDir, 'diffs.gray') });
-
-    const { start, end, score } = pickLoopPoints(diffs, FPS, { tailSec: TAIL_SEC });
     const mp4 = path.join(outDir, 'hero-loop.mp4');
     const webm = path.join(outDir, 'hero-loop.webm');
-    await renderLoop({ ffmpeg, source, start, end, mp4, webm });
-    fs.rmSync(workDir, { recursive: true, force: true });
+    let start; let end; let score;
+    try {
+      const source = path.join(workDir, 'source.mkv');
+      await buildSource({ ffmpeg, scenes: footage, captureDir: values.capture, outFile: source });
+      const diffs = await sourceDiffs({ ffmpeg, source, rawFile: path.join(workDir, 'diffs.gray') });
+      ({ start, end, score } = pickLoopPoints(diffs, FPS, { tailSec: TAIL_SEC }));
+      await renderLoop({ ffmpeg, source, start, end, mp4, webm });
+    } finally {
+      fs.rmSync(workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
     logger.info(`hero loop: frames ${start}-${end} (${((end - start) / FPS).toFixed(2)} s, seam score ${score.toFixed(4)}) -> ${mp4}, ${webm}`);
     return 0;
   } catch (e) {

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright';
 import {
-  PATTERN_SOURCES, PAGE_SCANNER_SCRIPT, TESSDATA_DIR, PiiGateError,
+  PATTERN_SOURCES, PAGE_SCANNER_SCRIPT, TESSDATA_DIR,
   normalizeText, scanText, scanDom, createOcr,
 } from '../lib/pii.js';
 
@@ -41,15 +41,10 @@ test('redact is case-insensitive and reports kind redact', () => {
   assert.deepEqual(scanText('paid by mr SINTIM', { redact: ['Sintim'] }).map((h) => h.kind), ['redact']);
 });
 
-test('PATTERN_SOURCES is serialisable and PiiGateError carries its context', () => {
+test('PATTERN_SOURCES is serialisable and every pattern compiles', () => {
   const round = JSON.parse(JSON.stringify(PATTERN_SOURCES));
   assert.deepEqual(round, PATTERN_SOURCES);
   for (const p of round) new RegExp(p.source, p.flags);
-  const e = new PiiGateError('x', { frame: 'f.png', hits: [{ kind: 'email', match: 'a@b.co' }], source: 'ocr' });
-  assert.ok(e instanceof Error);
-  assert.equal(e.frame, 'f.png');
-  assert.equal(e.source, 'ocr');
-  assert.equal(e.hits.length, 1);
   assert.equal(typeof PAGE_SCANNER_SCRIPT, 'function');
 });
 
