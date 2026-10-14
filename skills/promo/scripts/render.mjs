@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { loadScenes, ValidationError } from './lib/schema.js';
 import { FfmpegUnavailableError, requireFfmpeg } from './lib/ffmpeg.js';
 import {
-  FontUnavailableError, assertFootageFiles, makeContactSheet, renderStills, renderVideo,
+  assertFootageFiles, makeContactSheet, renderStills, renderVideo,
 } from './lib/render-core.js';
 import { createLogger } from './lib/log.js';
 
@@ -80,7 +80,7 @@ async function main(argv) {
   } catch (e) {
     logger.error(e instanceof ValidationError ? `invalid scenes:
 ${e.message}` : e.message);
-    return e instanceof FfmpegUnavailableError || e instanceof FontUnavailableError ? 2 : 1;
+    return e instanceof FfmpegUnavailableError ? 2 : 1;
   }
 }
 

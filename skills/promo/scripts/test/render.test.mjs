@@ -227,10 +227,10 @@ test('CLI names the missing flow video when scenes reference a flow with no webm
   assert.match(r.stderr, /rent-collection\.webm/);
 });
 
-test('unknown brand.font is refused naming the font (exit 2, the font-unavailable code)', async () => {
+test('unknown brand.font is refused naming the font (exit 1, a scenes.json value to fix)', async () => {
   const doc = goodScenes();
   doc.brand.font = 'Definitely Not A Font 123';
   const r = await runCliAsync(render, ['--scenes', writeScenes(doc), '--capture', cliEnv(), '--out', tmpDir('out')]);
-  assert.equal(r.status, 2);
+  assert.equal(r.status, 1);
   assert.match(r.stderr, /Definitely Not A Font 123/);
 });
