@@ -179,7 +179,7 @@ test('overflowing text at 9x16 exits 1 and lists scene + field before any encode
   assert.match(stderr, /overflow|safe-area/);
   assert.equal(fs.existsSync(out), false, 'nothing is encoded');
   assert.equal(fs.existsSync(path.join(dir, 'work-9x16')), false, 'no frames are rendered');
-  assert.equal(fs.existsSync(path.join(dir, 'reframe-report.json')), false);
+  assert.equal(fs.existsSync(path.join(dir, 'reframe-report-9x16.json')), false);
 });
 
 test('layoutGate reports a hook that overflows its template, naming scene and field', async () => {
@@ -205,4 +205,30 @@ test('both ratios reframed into one dir keep distinct render and reframe reports
   assert.deepEqual(names, ['reframe-report-1x1.json', 'reframe-report-9x16.json', 'render-report-1x1.json', 'render-report-9x16.json']);
   const sizes = ['1x1', '9x16'].map((r) => JSON.parse(fs.readFileSync(path.join(reel.dir, `render-report-${r}.json`), 'utf8')).size);
   assert.deepEqual(sizes, [{ w: 1080, h: 1080 }, REEL]);
+});
+
+// 60 characters (the schema maximum) of wide capitals, so it wraps to two lines at every ratio.
+const WORST_CAPTION = 'WIDE WORDS MAKE WIDE LINES AND WRAP WIDE WORDS WIDE WIDE WIDE'.slice(0, 60);
+test('a worst-case schema-max caption gives no layoutGate issues at 16:9, 1:1 and 9:16', async () => {
+  assert.equal(WORST_CAPTION.length, 60);
+  const scenes = [{ ...DOC.scenes[1], caption: WORST_CAPTION, transition: 'none' }];
+  for (const [size, captionMode] of [[{ w: 1920, h: 1080 }, null], [{ w: 1080, h: 1080 }, 'feed'], [REEL, 'reel']]) {
+    assert.deepEqual(await layoutGate(scenes, DOC.brand, size, { captureDir, captionMode }), [], `${size.w}x${size.h}`);
+  }
+});
+
+test('a two-line caption fits the 1:1 caption bar', async () => {
+  const size = { w: 1080, h: 1080 };
+  const scenes = [{ ...DOC.scenes[1], caption: WORST_CAPTION.slice(0, 52), transition: 'none' }];
+  const c = await openCompositor({ scenes, brand: DOC.brand, size, captureDir, captionMode: 'feed' });
+  compositor.push(c);
+  await c.drive(1);
+  const m = await c.page.evaluate(() => {
+    const el = document.querySelector('[data-field="caption"]');
+    const lh = parseFloat(getComputedStyle(el).lineHeight);
+    return { lines: Math.round(el.getBoundingClientRect().height / lh), h: el.getBoundingClientRect().height, bar: document.querySelector('[data-template="caption-bar"]').getBoundingClientRect().height };
+  });
+  assert.equal(m.lines, 2, JSON.stringify(m));
+  assert.ok(m.h < m.bar, JSON.stringify(m));
+  assert.deepEqual(await checkLayout(c.page, { size, sceneIndex: 0 }), []);
 });

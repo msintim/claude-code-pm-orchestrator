@@ -65,12 +65,12 @@ html, body { margin: 0; background: #000; }
 /* caption-bar: composited over footage by the footage scenes (Task 9), above the safe band's bottom edge. */
 [data-template="caption-bar"] {
   inset: auto 6cqw calc(var(--safe-bottom) + 8cqh) 6cqw;
-  padding: 2cqmin 3cqmin;
+  padding: 1.2cqmin 3cqmin;
   border-radius: 2cqmin;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   color: var(--fg);
 }
-[data-template="caption-bar"] [data-field="caption"] { font-size: 3.6cqmin; font-weight: 650; }
+[data-template="caption-bar"] [data-field="caption"] { font-size: 3cqmin; font-weight: 650; }
 
 /* Landscape has room for bigger type. */
 @container (aspect-ratio > 1.2) {
