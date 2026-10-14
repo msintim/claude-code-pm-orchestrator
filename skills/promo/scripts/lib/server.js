@@ -60,10 +60,25 @@ export function serveDirs(mounts, { host = '127.0.0.1', port = 0, handlers = {} 
       res.writeHead(404, { 'content-type': 'text/plain' });
       return res.end('not found');
     }
-    res.writeHead(200, {
+    const size = fs.statSync(file).size;
+    const headers = {
       'content-type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
       'cache-control': 'no-store',
-    });
+      'accept-ranges': 'bytes',
+    };
+    // A video element can only seek a file the server answers byte ranges for; without them it is stuck at 0.
+    const range = /^bytes=(d*)-(d*)$/.exec(req.headers.range ?? '');
+    if (range && (range[1] || range[2])) {
+      const start = range[1] === '' ? Math.max(size - Number(range[2]), 0) : Number(range[1]);
+      const end = range[1] === '' || range[2] === '' ? size - 1 : Math.min(Number(range[2]), size - 1);
+      if (start > end || start >= size) {
+        res.writeHead(416, { 'content-range': `bytes */${size}` });
+        return res.end();
+      }
+      res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': end - start + 1 });
+      return fs.createReadStream(file, { start, end }).on('error', () => res.destroy()).pipe(res);
+    }
+    res.writeHead(200, { ...headers, 'content-length': size });
     fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
   });
   return new Promise((resolve, reject) => {

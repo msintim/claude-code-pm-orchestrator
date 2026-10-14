@@ -1,17 +1,37 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { serveDirs } from './server.js';
 import { run } from './ffmpeg.js';
-import { buildTimeline, stillTimes } from './timeline.js';
+import { buildTimeline, stillTimes, at } from './timeline.js';
 import { checkLayout } from './layout-check.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(here, '..', '..', 'templates');
 const GENERIC_FONTS = new Set(['serif', 'sans-serif', 'monospace']);
 const FPS = 30;
+
+export const ENCODE = Object.freeze({ codec: 'libx264', crf: 18, pix_fmt: 'yuv420p', preset: 'slow', movflags: '+faststart' });
+
+export class FootageMissingError extends Error {
+  constructor(flow, file) {
+    super(`scenes reference flow "${flow}" but its recording is missing: ${file}`);
+    this.name = 'FootageMissingError';
+    this.flow = flow;
+  }
+}
+
+/** Every footage scene needs its flow's webm in the capture directory. */
+export function assertFootageFiles(scenes, captureDir) {
+  for (const scene of scenes) {
+    if (scene.type !== 'footage') continue;
+    const file = path.join(captureDir ?? '', `${scene.flow}.webm`);
+    if (!captureDir || !fs.existsSync(file)) throw new FootageMissingError(scene.flow, `${scene.flow}.webm`);
+  }
+}
 
 export class FontUnavailableError extends Error {
   constructor(font) {
@@ -87,6 +107,7 @@ export async function openCompositor({ scenes, brand, size, captureDir }) {
 
 /** One PNG per scene midpoint and per windowed-transition midpoint; template scenes are layout-checked. */
 export async function renderStills({ scenes, brand, size, captureDir, outDir }) {
+  assertFootageFiles(scenes, captureDir);
   fs.mkdirSync(outDir, { recursive: true });
   const timeline = buildTimeline(scenes, FPS);
   const c = await openCompositor({ scenes, brand, size, captureDir });
@@ -117,4 +138,77 @@ export async function makeContactSheet({ ffmpeg, files, out, cols = 3, thumbWidt
   const chain = files.map((_, i) => `[v${i}]`).join('');
   const graph = `${scaled};${chain}concat=n=${files.length}:v=1:a=0,tile=${cols}x${rows}`;
   await run(ffmpeg, ['-hide_banner', '-y', ...inputs, '-filter_complex', graph, '-frames:v', '1', out]);
+}
+
+async function encode({ ffmpeg, framesDir, out, codecArgs }) {
+  await run(ffmpeg, ['-hide_banner', '-y', '-framerate', String(FPS), '-i', path.join(framesDir, '%05d.png'), ...codecArgs, out]);
+}
+
+/**
+ * Render every frame of the master through the compositor and encode it. `doc` is a parsed scenes.json
+ * ({ brand, scenes }). Frames are a pure function of the frame index, and frameSequenceSha256 hashes the
+ * PNG bytes in order, so identical inputs give an identical sequence.
+ */
+export async function renderVideo({ scenes: doc, size, captureDir, outFile, workDir, ffmpeg, music = null, webm = false, keepFrames = false }) {
+  if (music) throw new Error('renderVideo: music is not supported yet');
+  const { scenes, brand } = doc;
+  assertFootageFiles(scenes, captureDir);
+  const timeline = buildTimeline(scenes, FPS);
+  const framesDir = path.join(workDir, 'frames');
+  fs.rmSync(framesDir, { recursive: true, force: true });
+  fs.mkdirSync(framesDir, { recursive: true });
+  fs.mkdirSync(path.dirname(outFile), { recursive: true });
+
+  const hash = crypto.createHash('sha256');
+  const layoutIssues = [];
+  const c = await openCompositor({ scenes, brand, size, captureDir });
+  try {
+    // Template scenes are layout-checked once, at the frame nearest their midpoint, when no transition covers it.
+    const checkAt = new Map();
+    timeline.scenes.forEach((s, index) => {
+      if (scenes[index].type !== 'footage') checkAt.set(Math.round((s.start + s.duration / 2) * FPS), index);
+    });
+    for (let i = 0; i < timeline.frameCount; i += 1) {
+      const t = i / FPS;
+      await c.drive(t);
+      if (checkAt.has(i) && !at(timeline, t).transition) {
+        layoutIssues.push(...await checkLayout(c.page, { size, sceneIndex: checkAt.get(i) }));
+      }
+      const png = await c.shot();
+      hash.update(png);
+      fs.writeFileSync(path.join(framesDir, `${String(i + 1).padStart(5, '0')}.png`), png);
+    }
+  } finally {
+    await c.close();
+  }
+
+  try {
+    await encode({
+      ffmpeg, framesDir, out: outFile,
+      codecArgs: ['-c:v', ENCODE.codec, '-crf', String(ENCODE.crf), '-preset', ENCODE.preset, '-pix_fmt', ENCODE.pix_fmt, '-movflags', ENCODE.movflags],
+    });
+    if (webm) {
+      await encode({
+        ffmpeg, framesDir, out: outFile.replace(/.mp4$/, '.webm'),
+        codecArgs: ['-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0', '-pix_fmt', 'yuv420p'],
+      });
+    }
+  } finally {
+    if (!keepFrames) fs.rmSync(framesDir, { recursive: true, force: true });
+  }
+
+  const report = {
+    version: 1,
+    size,
+    fps: FPS,
+    frames: timeline.frameCount,
+    frameSequenceSha256: hash.digest('hex'),
+    encode: { ...ENCODE },
+    audio: null,
+    cueAlignment: [],
+    layoutIssues,
+  };
+  fs.writeFileSync(path.join(path.dirname(outFile), 'render-report.json'), `${JSON.stringify(report, null, 2)}
+`);
+  return report;
 }

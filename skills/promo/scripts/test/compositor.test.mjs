@@ -8,7 +8,7 @@ import { checkLayout } from '../lib/layout-check.js';
 import {
   openCompositor, renderStills, makeContactSheet, assertFontAvailable, FontUnavailableError,
 } from '../lib/render-core.js';
-import { requireFfmpeg } from '../lib/ffmpeg.js';
+import { requireFfmpeg, run } from '../lib/ffmpeg.js';
 import { tmpDir, runCliAsync, scriptsDir } from './helpers.mjs';
 
 const SIZES = [{ w: 1920, h: 1080 }, { w: 1080, h: 1080 }, { w: 1080, h: 1920 }];
@@ -188,13 +188,6 @@ test('unknown brand font fails loudly naming the font; generic families pass', a
   );
 });
 
-test('a footage scene renders as a blank placeholder layer until Task 9 composites footage', async () => {
-  const footage = { type: 'footage', flow: 'f', in: 0, out: 3, caption: 'c', transition: 'none' };
-  const c = await open({ scenes: [footage] });
-  await c.drive(1);
-  assert.equal(await c.page.evaluate(() => document.querySelectorAll('[data-field]').length), 0);
-});
-
 test('renderStills writes one PNG per scene midpoint and per non-cut transition midpoint', async () => {
   const outDir = tmpDir('stills');
   const size = { w: 480, h: 270 };
@@ -225,6 +218,10 @@ test('render.mjs --stills writes stills and a contact sheet from a scenes file',
     version: 1, fps: 30, master: { w: 1920, h: 1080 }, brand: BRAND,
     scenes: [SCENES[0], footage, SCENES[3]],
   }));
+  // The footage layer plays the real flow video, so the capture directory needs one and its report.
+  const { ffmpeg } = await requireFfmpeg();
+  await run(ffmpeg, ['-hide_banner', '-y', '-f', 'lavfi', '-i', 'color=c=teal:s=1920x1080:r=60:d=2', '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8', path.join(dir, 'f.webm')]);
+  fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify({ version: 1, status: 'ok', flows: [{ name: 'f', video: 'f.webm', durationSec: 10 }] }));
   const out = path.join(dir, 'out');
   const r = await runCliAsync(path.join(scriptsDir, 'render.mjs'), ['--scenes', scenesFile, '--capture', dir, '--out', out, '--stills', '--size', '480x270']);
   assert.equal(r.status, 0, r.stderr);
@@ -233,5 +230,5 @@ test('render.mjs --stills writes stills and a contact sheet from a scenes file',
   ]);
   const bad = await runCliAsync(path.join(scriptsDir, 'render.mjs'), ['--scenes', scenesFile, '--out', out]);
   assert.equal(bad.status, 1);
-  assert.match(bad.stderr, /--stills/);
+  assert.match(bad.stderr, /--capture/);
 });
