@@ -1,0 +1,89 @@
+/* One stylesheet for every template at every ratio. Sizes are container units of #stage, so the same
+   markup renders 16:9, 1:1 and 9:16. The compositor sets --brand-*, --safe-top, --safe-bottom and
+   data-theme on #stage; nothing here depends on the viewport. */
+
+html, body { margin: 0; background: #000; }
+
+#stage {
+  container-type: size;
+  position: relative;
+  overflow: hidden;
+  font-family: var(--brand-font, sans-serif);
+  --entrance: 0.5s;
+  --pad: 9cqmin;
+  --safe-top: 0px;
+  --safe-bottom: 0px;
+}
+#stage[data-theme="light"] { --bg: #fafafa; --fg: #111827; --muted: #4b5563; }
+#stage[data-theme="dark"] { --bg: #0b0f1a; --fg: #f9fafb; --muted: #cbd5e1; }
+
+.layer { position: absolute; inset: 0; display: none; background: var(--bg); color: var(--fg); }
+
+#dip { position: absolute; inset: 0; z-index: 10; pointer-events: none; opacity: 0; background: var(--brand-primary); }
+
+[data-template] {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3cqmin;
+  padding: calc(var(--pad) + var(--safe-top)) var(--pad) calc(var(--pad) + var(--safe-bottom));
+}
+
+[data-field] { margin: 0; overflow-wrap: anywhere; line-height: 1.12; }
+
+/* Entrances are paused and seeked by the compositor (Animation.currentTime), never played. */
+@keyframes enter {
+  from { opacity: 0; transform: translateY(3cqmin); }
+  to { opacity: 1; transform: none; }
+}
+[data-field], .accent {
+  animation: enter var(--entrance) cubic-bezier(0.2, 0.7, 0.2, 1) both paused;
+}
+
+.accent { width: 14cqmin; height: 1.4cqmin; border-radius: 1cqmin; background: var(--brand-accent); }
+.accent.primary { background: var(--brand-primary); }
+
+/* hook */
+[data-template="hook"] [data-field="text"] { font-size: 9cqmin; font-weight: 800; letter-spacing: -0.01em; }
+
+/* title-card */
+[data-template="title-card"] [data-field="title"] { font-size: 7.4cqmin; font-weight: 800; }
+[data-template="title-card"] [data-field="sub"] { font-size: 3.6cqmin; color: var(--muted); line-height: 1.3; }
+
+/* feature-callout */
+[data-template="feature-callout"] [data-field="title"] { font-size: 5cqmin; font-weight: 750; color: var(--brand-primary); }
+[data-template="feature-callout"] [data-field="body"] { font-size: 3.4cqmin; line-height: 1.35; }
+
+/* outro */
+[data-template="outro"] { align-items: center; text-align: center; }
+[data-template="outro"] [data-field="text"] { font-size: 8.5cqmin; font-weight: 800; }
+[data-template="outro"] [data-field="sub"] { font-size: 3.8cqmin; color: var(--muted); }
+
+/* caption-bar: composited over footage by the footage scenes (Task 9), above the safe band's bottom edge. */
+[data-template="caption-bar"] {
+  inset: auto 6cqw calc(var(--safe-bottom) + 8cqh) 6cqw;
+  padding: 2cqmin 3cqmin;
+  border-radius: 2cqmin;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  color: var(--fg);
+}
+[data-template="caption-bar"] [data-field="caption"] { font-size: 3.6cqmin; font-weight: 650; }
+
+/* Landscape has room for bigger type. */
+@container (aspect-ratio > 1.2) {
+  [data-template="feature-callout"] [data-field="title"] { font-size: 6.2cqmin; }
+  [data-template="feature-callout"] [data-field="body"] { font-size: 3.8cqmin; }
+  [data-template="title-card"] [data-field="title"] { font-size: 8.4cqmin; }
+  [data-template="hook"] [data-field="text"] { font-size: 10cqmin; }
+}
+
+/* Portrait: content sits in the safe band (padding above), narrower measure, centred stack. */
+@container (aspect-ratio < 1) {
+  [data-template] { --pad: 8cqw; }
+  [data-template="hook"] [data-field="text"] { font-size: 8.4cqmin; }
+  [data-template="title-card"] [data-field="title"] { font-size: 7cqmin; }
+  [data-template="outro"] [data-field="text"] { font-size: 8cqmin; }
+}
