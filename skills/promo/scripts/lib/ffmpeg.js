@@ -51,7 +51,7 @@ export function resolveFfmpeg({ env = process.env, platform = process.platform, 
     // An explicit override that resolves to nothing is a configuration error, not a cue to guess from PATH.
     const bad = String(override).replace(/\s+/g, ' ');
     throw new FfmpegNotFoundError(
-      `PROMO_FFMPEG was ignored because "${bad}" has no usable ffmpeg and ffprobe (not falling back to PATH). ${INSTALL_HINT}`,
+      `PROMO_FFMPEG is not usable: "${bad}" has no ffmpeg and ffprobe (not falling back to PATH). ${INSTALL_HINT}`,
     );
   }
 

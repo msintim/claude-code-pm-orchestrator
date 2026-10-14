@@ -85,7 +85,7 @@ test('PROMO_FFMPEG set but unusable throws and does not fall back to PATH', () =
       e instanceof FfmpegNotFoundError &&
       !/\n/.test(e.message) &&
       e.message.includes(bad) &&
-      e.message.includes('PROMO_FFMPEG was ignored'),
+      e.message.includes('PROMO_FFMPEG is not usable'),
   );
 });
 

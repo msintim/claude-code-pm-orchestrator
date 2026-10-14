@@ -27,7 +27,10 @@ async function checkFfmpeg(env) {
       fix: INSTALL_HINT,
     };
   } catch (e) {
-    const detail = e instanceof FfmpegNotFoundError ? 'ffmpeg/ffprobe not found' : e.message.split('\n')[0];
+    // INSTALL_HINT is reported once, as `fix`; strip it from the message used as detail.
+    const detail = e instanceof FfmpegNotFoundError
+      ? e.message.replace(INSTALL_HINT, '').trim() || 'ffmpeg/ffprobe not found'
+      : e.message.split('\n')[0];
     return { name: 'ffmpeg', ok: false, detail, fix: INSTALL_HINT };
   }
 }

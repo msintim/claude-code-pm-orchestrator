@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { collectChecks } from '../lib/doctor.js';
 import { INSTALL_HINT } from '../lib/ffmpeg.js';
 
@@ -8,6 +11,19 @@ test('doctor reports a missing ffmpeg as a failure carrying the install hint', a
   const ffmpeg = checks.find((c) => c.name === 'ffmpeg');
   assert.ok(ffmpeg);
   assert.equal(ffmpeg.ok, false);
+  assert.equal(ffmpeg.fix, INSTALL_HINT);
+});
+
+test('doctor names a mistyped PROMO_FFMPEG instead of reporting a generic miss', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'promo-doctor-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  for (const n of ['ffmpeg', 'ffprobe']) fs.writeFileSync(path.join(dir, n + ext), '');
+  const checks = await collectChecks({ env: { PROMO_FFMPEG: '/nope', PATH: dir } });
+  const ffmpeg = checks.find((c) => c.name === 'ffmpeg');
+  assert.equal(ffmpeg.ok, false);
+  assert.ok(ffmpeg.detail.includes('/nope'));
+  assert.ok(!ffmpeg.detail.includes(INSTALL_HINT));
   assert.equal(ffmpeg.fix, INSTALL_HINT);
 });
 
