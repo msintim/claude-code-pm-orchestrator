@@ -314,11 +314,32 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
     const settles = [];
     let settleCount = 0;
 
+    // Playwright's scrollIntoViewIfNeeded scrolls instantly, which the recording shows as a jump cut.
+    // This animates instead: always for a scroll beat (centre), and for every other beat only when the
+    // target is not fully in view, so an in-view target never moves the page. It returns once the
+    // target's position holds still, which also covers scrolling inside a nested container.
+    const smoothIntoView = (loc, always) => loc.evaluate(async (el, force) => {
+      const r = el.getBoundingClientRect();
+      const inView = r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth;
+      if (inView && !force) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+      const start = performance.now();
+      let last = null;
+      let still = 0;
+      while (still < 6 && performance.now() - start < 4000) {
+        await frame();
+        const b = el.getBoundingClientRect();
+        still = last && b.top === last.top && b.left === last.left ? still + 1 : 0;
+        last = b;
+      }
+    }, always);
+
     const target = async (sel, index, kind) => {
       const loc = page.locator(sel).first();
       try {
         await loc.waitFor({ state: 'visible', timeout: beatTimeout });
-        await loc.scrollIntoViewIfNeeded({ timeout: beatTimeout });
+        await smoothIntoView(loc, kind === 'scroll');
       } catch (e) {
         if (e.name !== 'TimeoutError') throw e;
         throw new FlowFailure({
@@ -384,18 +405,9 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
           await sleep(PAUSE_MS);
           break;
         }
-        case 'scroll': {
-          const { loc } = await target(value, index, kind);
-          await loc.evaluate((el) => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-          let last = -1;
-          for (let i = 0; i < 40; i++) {
-            const y = await page.evaluate(() => window.scrollY);
-            if (y === last) break;
-            last = y;
-            await sleep(100);
-          }
+        case 'scroll':
+          await target(value, index, kind); // target() does the smooth scroll and waits for it to finish
           break;
-        }
         case 'wait':
           await sleep(value);
           break;
