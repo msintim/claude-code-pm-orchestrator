@@ -315,45 +315,72 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
     let settleCount = 0;
 
     // Playwright's scrollIntoViewIfNeeded scrolls instantly, which the recording shows as a jump cut.
-    // This animates instead: always for a scroll beat, and for every other beat only when the target
-    // is not in view, so an in-view target never moves the page. A target taller than its view is
-    // aligned by its top edge, not centred. It returns once the target's position holds still.
-    const smoothIntoView = (loc, always) => loc.evaluate(async (el, { force, capMs }) => {
-      // The area el can be seen in: the window, cut down by every ancestor that clips its overflow.
-      let clip = { top: 0, left: 0, bottom: innerHeight, right: innerWidth };
-      let viewHeight = innerHeight; // height of the nearest clipping ancestor, or the window
-      let nearest = true;
-      for (let a = el.parentElement; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
-        const s = getComputedStyle(a);
-        if (s.overflowX === 'visible' && s.overflowY === 'visible') continue;
-        const b = a.getBoundingClientRect();
-        const top = b.top + a.clientTop;
-        const left = b.left + a.clientLeft;
-        clip = {
-          top: Math.max(clip.top, top), left: Math.max(clip.left, left),
-          bottom: Math.min(clip.bottom, top + a.clientHeight), right: Math.min(clip.right, left + a.clientWidth),
-        };
-        if (nearest) viewHeight = a.clientHeight;
-        nearest = false;
+    // This keeps the browser's own choice of where to scroll and animates the way there. In one task
+    // (so nothing is painted in between) it lets Chromium scroll instantly, notes where every scroller
+    // ended up, puts them back, then smooth-scrolls each one to its noted position. A scroll beat always
+    // centres its target (top edge if taller than the window); other beats move only if Chromium's
+    // if-needed rule says so, so an in-view target never moves the page.
+    const smoothIntoView = async (loc, always) => {
+      const run = loc.evaluate(async (el, { force, capMs }) => {
+        // Every scroller el's position depends on: composed ancestors across shadow roots and same-origin frames.
+        const ancestors = [];
+        for (let n = el, doc = el.ownerDocument; n;) {
+          const up = n.assignedSlot ?? n.parentElement ?? n.parentNode?.host;
+          if (up) {
+            ancestors.push(up);
+            n = up;
+          } else {
+            n = doc.defaultView?.frameElement ?? null; // null across origins
+            if (n) doc = n.ownerDocument;
+          }
+        }
+        const scrollers = ancestors.filter((s) => s.scrollHeight > s.clientHeight || s.scrollWidth > s.clientWidth);
+        const pos = () => scrollers.map((s) => [s.scrollLeft, s.scrollTop]);
+        const from = pos();
+        // CSS scroll-behavior: smooth would make the browser's own scroll animate, so turn it off meanwhile.
+        const smoothCss = scrollers.filter((s) => getComputedStyle(s).scrollBehavior === 'smooth');
+        const saved = smoothCss.map((s) => [s.style.getPropertyValue('scroll-behavior'), s.style.getPropertyPriority('scroll-behavior')]);
+        for (const s of smoothCss) s.style.setProperty('scroll-behavior', 'auto', 'important');
+        const tall = el.getBoundingClientRect().height > innerHeight;
+        if (force) {
+          el.scrollIntoView({ block: tall ? 'start' : 'center', inline: 'nearest' });
+        } else {
+          el.scrollIntoViewIfNeeded(true);
+          // Chromium centres a fully off-screen target even when it is taller than the window, hiding its top.
+          if (tall && pos().join() !== from.join()) el.scrollIntoView({ block: 'start', inline: 'nearest' });
+        }
+        const to = pos();
+        scrollers.forEach((s, i) => { s.scrollLeft = from[i][0]; s.scrollTop = from[i][1]; });
+        smoothCss.forEach((s, i) => s.style.setProperty('scroll-behavior', ...saved[i]));
+        const moving = scrollers.filter((s, i) => to[i][0] !== from[i][0] || to[i][1] !== from[i][1]);
+        if (!moving.length) return;
+        scrollers.forEach((s, i) => {
+          if (moving.includes(s)) s.scrollTo({ left: to[i][0], top: to[i][1], behavior: 'smooth' });
+        });
+        // The next animation frame, or 100 ms if frames stop, so a throttled renderer cannot hang the beat.
+        const frame = () => new Promise((resolve) => { requestAnimationFrame(resolve); setTimeout(resolve, 100); });
+        const start = performance.now();
+        let last = pos().join();
+        let still = 0;
+        while (still < 6 && performance.now() - start < capMs) {
+          await frame();
+          const now = pos().join();
+          still = now === last ? still + 1 : 0;
+          last = now;
+        }
+      }, { force: always, capMs: Math.min(4000, beatTimeout) });
+      // evaluate's own timeout covers only finding the element, not running the function: bound it here.
+      run.catch(() => {}); // a late rejection after the timeout below has won must not go unhandled
+      let timer;
+      const timeout = new Promise((resolve, reject) => {
+        timer = setTimeout(() => reject(Object.assign(new Error(`scroll did not finish within ${beatTimeout} ms`), { name: 'TimeoutError' })), beatTimeout);
+      });
+      try {
+        await Promise.race([run, timeout]);
+      } finally {
+        clearTimeout(timer);
       }
-      const r = el.getBoundingClientRect();
-      // Per axis, in view means the target fits inside the clip area or already covers all of it.
-      const fits = (lo, hi, cLo, cHi) => (lo >= cLo - 1 && hi <= cHi + 1) || (lo <= cLo + 1 && hi >= cHi - 1);
-      const inView = fits(r.top, r.bottom, clip.top, clip.bottom) && fits(r.left, r.right, clip.left, clip.right);
-      if (inView && !force) return;
-      el.scrollIntoView({ behavior: 'smooth', block: r.height > viewHeight ? 'start' : 'center', inline: 'nearest' });
-      // The next animation frame, or 100 ms if frames stop, so a throttled renderer cannot hang the beat.
-      const frame = () => new Promise((resolve) => { requestAnimationFrame(resolve); setTimeout(resolve, 100); });
-      const start = performance.now();
-      let last = null;
-      let still = 0;
-      while (still < 6 && performance.now() - start < capMs) {
-        await frame();
-        const b = el.getBoundingClientRect();
-        still = last && b.top === last.top && b.left === last.left ? still + 1 : 0;
-        last = b;
-      }
-    }, { force: always, capMs: Math.min(4000, beatTimeout) }, { timeout: beatTimeout });
+    };
 
     const target = async (sel, index, kind) => {
       const loc = page.locator(sel).first();

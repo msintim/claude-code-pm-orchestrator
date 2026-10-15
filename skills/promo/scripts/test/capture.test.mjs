@@ -317,6 +317,28 @@ test('a target clipped inside a scroll container is scrolled into the container 
   ok(seen.inside, 'the clipped target is visible inside its scroll container');
 });
 
+test('framing holds under an overflow-x wrapper and across a shadow root', { skip }, async () => {
+  const seen = [];
+  const hooks = {
+    beforeSettle: async ({ page, selector }) => {
+      seen.push(await page.evaluate((sel) => {
+        if (sel === '.slab') return { slabTop: document.querySelector('.slab').getBoundingClientRect().top };
+        const box = document.querySelector('.box').getBoundingClientRect();
+        const deep = document.querySelector('x-entry').shadowRoot.getElementById('shadow-deep').getBoundingClientRect();
+        return { inside: deep.top >= box.top && deep.bottom <= box.bottom };
+      }, selector));
+    },
+  };
+  const file = flowConfig(server.origin, `      - goto: /wrap.html
+      - settle: "#shadow-deep"
+      - settle: ".slab"
+`, 'wrap');
+  const rep = await runCapture({ configPath: file, outDir: tmpDir('out'), logger: quiet, hooks });
+  equal(rep.status, 'ok');
+  ok(seen[0].inside, 'a shadow-DOM target is scrolled into its container view');
+  ok(Math.abs(seen[1].slabTop) <= 1, `a tall target under an overflow-x wrapper shows its top (top at ${seen[1].slabTop})`);
+});
+
 test('createLogger scrubs secrets from everything written', () => {
   const log = createLogger({ secrets: ['hunter2', ''] });
   equal(log.scrub('pw=hunter2 and hunter2'), 'pw=*** and ***');

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Wrapped</title><link rel="stylesheet" href="/site.css">
+<style>
+  /* overflow-x: hidden makes the wrapper compute overflow-y: auto, the layout that once fooled the in-view check. */
+  .wrap { overflow-x: hidden; }
+  .lead { height: 800px; }
+  .slab { height: 3000px; background: repeating-linear-gradient(180deg, #e8eef5 0 120px, #c9d6e4 120px 240px); }
+  .box { height: 200px; overflow: auto; border: 1px solid #c9d6e4; }
+  .box .spacer { height: 400px; }
+</style></head>
+<body>
+<div class="wrap">
+  <h1>Statements</h1>
+  <div class="box"><div class="spacer"></div><x-entry></x-entry></div>
+  <div class="lead"></div>
+  <section class="slab"></section>
+</div>
+<script>
+  // A target inside an open shadow root, inside a scroll container: the walk up must cross the shadow boundary.
+  customElements.define('x-entry', class extends HTMLElement {
+    constructor() { super(); this.attachShadow({ mode: 'open' }).innerHTML = '<p id="shadow-deep">Archived statement</p>'; }
+  });
+</script>
+</body>
+</html>
