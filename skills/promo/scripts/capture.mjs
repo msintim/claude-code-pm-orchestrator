@@ -324,6 +324,7 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
       const run = loc.evaluate(async (el, { force, capMs }) => {
         // Every scroller el's position depends on: composed ancestors across shadow roots and same-origin frames.
         const ancestors = [];
+        const roots = [el.ownerDocument.documentElement];
         for (let n = el, doc = el.ownerDocument; n;) {
           const up = n.assignedSlot ?? n.parentElement ?? n.parentNode?.host;
           if (up) {
@@ -331,15 +332,19 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
             n = up;
           } else {
             n = doc.defaultView?.frameElement ?? null; // null across origins
-            if (n) doc = n.ownerDocument;
+            if (n) {
+              doc = n.ownerDocument;
+              roots.push(doc.documentElement);
+            }
           }
         }
         const scrollers = ancestors.filter((s) => s.scrollHeight > s.clientHeight || s.scrollWidth > s.clientWidth);
         const pos = () => scrollers.map((s) => [s.scrollLeft, s.scrollTop]);
         const from = pos();
         // CSS scroll-behavior: smooth would make the browser's own scroll animate, so turn it off meanwhile.
-        const smoothCss = scrollers.filter((s) => getComputedStyle(s).scrollBehavior === 'smooth');
-        const saved = smoothCss.map((s) => [s.style.getPropertyValue('scroll-behavior'), s.style.getPropertyPriority('scroll-behavior')]);
+        // The window takes it from <html> even when <body> is the scrolling element (quirks mode).
+        const smoothCss = [...new Set([...scrollers, ...roots])].filter((s) => getComputedStyle(s).scrollBehavior === 'smooth');
+        const saved = smoothCss.map((s) => [s.hasAttribute('style'), s.style.getPropertyValue('scroll-behavior'), s.style.getPropertyPriority('scroll-behavior')]);
         for (const s of smoothCss) s.style.setProperty('scroll-behavior', 'auto', 'important');
         const tall = el.getBoundingClientRect().height > innerHeight;
         if (force) {
@@ -351,29 +356,45 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
         }
         const to = pos();
         scrollers.forEach((s, i) => { s.scrollLeft = from[i][0]; s.scrollTop = from[i][1]; });
-        smoothCss.forEach((s, i) => s.style.setProperty('scroll-behavior', ...saved[i]));
+        smoothCss.forEach((s, i) => {
+          const [hadStyle, value, priority] = saved[i];
+          s.style.setProperty('scroll-behavior', value, priority);
+          if (!hadStyle && s.getAttribute('style') === '') s.removeAttribute('style');
+        });
         const moving = scrollers.filter((s, i) => to[i][0] !== from[i][0] || to[i][1] !== from[i][1]);
         if (!moving.length) return;
-        scrollers.forEach((s, i) => {
-          if (moving.includes(s)) s.scrollTo({ left: to[i][0], top: to[i][1], behavior: 'smooth' });
+        const go = (behavior) => scrollers.forEach((s, i) => {
+          if (moving.includes(s)) s.scrollTo({ left: to[i][0], top: to[i][1], behavior });
         });
+        const arrived = () => pos().every(([x, y], i) => Math.abs(x - to[i][0]) <= 1 && Math.abs(y - to[i][1]) <= 1);
         // The next animation frame, or 100 ms if frames stop, so a throttled renderer cannot hang the beat.
         const frame = () => new Promise((resolve) => { requestAnimationFrame(resolve); setTimeout(resolve, 100); });
-        const start = performance.now();
-        let last = pos().join();
-        let still = 0;
-        while (still < 6 && performance.now() - start < capMs) {
-          await frame();
-          const now = pos().join();
-          still = now === last ? still + 1 : 0;
-          last = now;
+        const deadline = performance.now() + capMs;
+        const waitStill = async () => {
+          let last = pos().join();
+          let still = 0;
+          while (still < 6 && performance.now() < deadline) {
+            await frame();
+            const now = pos().join();
+            still = now === last ? still + 1 : 0;
+            last = now;
+          }
+        };
+        go('smooth');
+        await waitStill();
+        // A page handler (e.g. a carousel re-syncing on scrollend) can cancel the animation: try once more,
+        // then land instantly as master did, rather than report success with the target out of view.
+        if (!arrived() && performance.now() < deadline) {
+          go('smooth');
+          await waitStill();
         }
-      }, { force: always, capMs: Math.min(4000, beatTimeout) });
+        if (!arrived()) go('instant');
+      }, { force: always, capMs: Math.max(0, Math.min(4000, beatTimeout - 500)) });
       // evaluate's own timeout covers only finding the element, not running the function: bound it here.
       run.catch(() => {}); // a late rejection after the timeout below has won must not go unhandled
       let timer;
       const timeout = new Promise((resolve, reject) => {
-        timer = setTimeout(() => reject(Object.assign(new Error(`scroll did not finish within ${beatTimeout} ms`), { name: 'TimeoutError' })), beatTimeout);
+        timer = setTimeout(() => reject(Object.assign(new Error(`scrolling it into view did not finish within ${beatTimeout} ms`), { name: 'TimeoutError', scroll: true })), beatTimeout);
       });
       try {
         await Promise.race([run, timeout]);
@@ -391,7 +412,7 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
         if (e.name !== 'TimeoutError') throw e;
         throw new FlowFailure({
           flow: flow.name, beatIndex: index, kind: 'selector',
-          message: `flow "${flow.name}" beat ${index} (${kind}): selector "${sel}" not found or not visible within ${beatTimeout} ms`,
+          message: `flow "${flow.name}" beat ${index} (${kind}): selector "${sel}" ${e.scroll ? e.message : `not found or not visible within ${beatTimeout} ms`}`,
         });
       }
       const box = await loc.boundingBox();
