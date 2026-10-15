@@ -36,9 +36,11 @@ Each beat is a one-key object. Anything else fails validation.
 | `fill` | `fill: { selector: "#name", text: "Ama Mensah" }` | Types the text key by key. |
 | `select` | `select: { selector: "#plan", value: "pro" }` | Picks an option. |
 | `hover` | `hover: "selector"` | Moves the cursor onto the target. |
-| `scroll` | `scroll: "selector"` | Smooth-scrolls the target into view. |
+| `scroll` | `scroll: "selector"` | Smooth-scrolls the target to the centre of the view (its top edge, if it is taller than the view), even if it is already visible. |
 | `wait` | `wait: 800` | Milliseconds, 0 to 3000. |
-| `settle` | `settle: "selector"` | Waits until visible, holds, and saves a still. Put one after every state change you want to show. |
+| `settle` | `settle: "selector"` | Waits until visible, holds, and saves a still. Put one after every state change you want to show. A target already fully in view does not move the page; one that is off-screen or cut off is smooth-scrolled to the centre first. |
+
+Every beat that names a selector brings a target that is off-screen or cut off into view with a smooth scroll, including a target hidden inside a scrolling panel. Where it scrolls to is the browser's own choice, the same as an instant scroll would make. A target taller than the view counts as in view once it fills the view, and is otherwise scrolled to its top edge. If the page cancels the animation (a carousel that re-syncs its position, for example), capture retries once and then jumps, so the target is always in view. Scrollers capture cannot reach, such as a closed shadow root, still jump. To show a long scroll on purpose, use `scroll`.
 
 Timing is built in. The cursor eases to its target over about 400 ms and pauses 150 ms before a click. Typing runs 60-90 ms per character with jitter. Each beat ends with a 600 ms hold. A fresh browser context starts every flow, `prefers-reduced-motion` is off, and service workers are blocked. Do not add `wait` to pad time; add a `settle` on the element that proves the page is ready.
 

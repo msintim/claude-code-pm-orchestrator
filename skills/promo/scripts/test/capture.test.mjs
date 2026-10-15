@@ -239,6 +239,106 @@ test('navigation that never responds: kind navigation, exit 3, screenshot and re
   }
 });
 
+// Frames that differ visibly from the previous kept frame (mpdecimate drops near-duplicates), between t0 and t1 of a recording.
+function distinctFrames(video, t0, t1) {
+  const r = spawnSync(bins.ffmpeg, ['-hide_banner', '-ss', String(t0), '-to', String(t1), '-i', video,
+    '-an', '-vf', 'mpdecimate', '-fps_mode', 'passthrough', '-f', 'framemd5', '-'], { encoding: 'utf8' });
+  equal(r.status, 0, r.stderr);
+  return r.stdout.split('\n').filter((l) => l.trim() && !l.startsWith('#')).length;
+}
+
+// An instant jump gives two distinct frames (before and after); an animated scroll gives many.
+const ANIMATED_MIN_FRAMES = 6;
+
+test('a scroll beat animates: many distinct frames while a tall page scrolls', { skip }, async () => {
+  const outDir = tmpDir('out');
+  const file = flowConfig(server.origin, `      - goto: /tall.html
+      - scroll: "#bottom"
+`, 'tall');
+  const rep = await runCapture({ configPath: file, outDir, logger: quiet });
+  equal(rep.status, 'ok');
+  const beat = rep.flows[0].beats[1];
+  equal(beat.kind, 'scroll');
+  const n = distinctFrames(path.join(outDir, rep.flows[0].video), beat.t0, beat.t1);
+  ok(n >= ANIMATED_MIN_FRAMES, `scroll beat shows ${n} distinct frames; a jump cut shows 2`);
+});
+
+test('a settle on an off-screen target scrolls smoothly; on an in-view target it does not move', { skip }, async () => {
+  const scrollAtSettle = [];
+  const hooks = { beforeSettle: async ({ page }) => { scrollAtSettle.push(await page.evaluate(() => window.scrollY)); } };
+  const outDir = tmpDir('out');
+  const file = flowConfig(server.origin, `      - goto: /tall.html
+      - settle: "#top"
+      - settle: "#bottom"
+`, 'tall');
+  const rep = await runCapture({ configPath: file, outDir, logger: quiet, hooks });
+  equal(rep.status, 'ok');
+  equal(scrollAtSettle[0], 0, 'an in-view settle target does not move the page');
+  ok(scrollAtSettle[1] > 0, 'an off-screen settle target is brought into view');
+  const beat = rep.flows[0].beats[2];
+  const n = distinctFrames(path.join(outDir, rep.flows[0].video), beat.t0, beat.t1);
+  ok(n >= ANIMATED_MIN_FRAMES, `settle beat shows ${n} distinct frames; a jump cut shows 2`);
+});
+
+test('a target taller than the view aligns its top and, once it covers the view, does not move', { skip }, async () => {
+  const seen = [];
+  const hooks = {
+    beforeSettle: async ({ page }) => {
+      seen.push(await page.evaluate(() => ({ y: window.scrollY, railTop: document.querySelector('.rail').getBoundingClientRect().top })));
+    },
+  };
+  const file = flowConfig(server.origin, `      - goto: /tall.html
+      - settle: ".rail"
+      - settle: ".rail"
+`, 'tall');
+  const rep = await runCapture({ configPath: file, outDir: tmpDir('out'), logger: quiet, hooks });
+  equal(rep.status, 'ok');
+  ok(Math.abs(seen[0].railTop) <= 1, `the tall target's top is shown, not its middle (top at ${seen[0].railTop})`);
+  equal(seen[1].y, seen[0].y, 'a target that already covers the view does not move the page');
+});
+
+test('a target clipped inside a scroll container is scrolled into the container view', { skip }, async () => {
+  let seen;
+  const hooks = {
+    beforeSettle: async ({ page }) => {
+      seen = await page.evaluate(() => {
+        const box = document.querySelector('.box').getBoundingClientRect();
+        const deep = document.getElementById('deep').getBoundingClientRect();
+        return { inside: deep.top >= box.top && deep.bottom <= box.bottom, inWindow: deep.bottom <= innerHeight };
+      });
+    },
+  };
+  const file = flowConfig(server.origin, `      - goto: /tall.html
+      - settle: "#deep"
+`, 'tall');
+  const rep = await runCapture({ configPath: file, outDir: tmpDir('out'), logger: quiet, hooks });
+  equal(rep.status, 'ok');
+  ok(seen.inWindow, 'fixture: the target lies inside the window, so only the container clips it');
+  ok(seen.inside, 'the clipped target is visible inside its scroll container');
+});
+
+test('framing holds under an overflow-x wrapper and across a shadow root', { skip }, async () => {
+  const seen = [];
+  const hooks = {
+    beforeSettle: async ({ page, selector }) => {
+      seen.push(await page.evaluate((sel) => {
+        if (sel === '.slab') return { slabTop: document.querySelector('.slab').getBoundingClientRect().top };
+        const box = document.querySelector('.box').getBoundingClientRect();
+        const deep = document.querySelector('x-entry').shadowRoot.getElementById('shadow-deep').getBoundingClientRect();
+        return { inside: deep.top >= box.top && deep.bottom <= box.bottom };
+      }, selector));
+    },
+  };
+  const file = flowConfig(server.origin, `      - goto: /wrap.html
+      - settle: "#shadow-deep"
+      - settle: ".slab"
+`, 'wrap');
+  const rep = await runCapture({ configPath: file, outDir: tmpDir('out'), logger: quiet, hooks });
+  equal(rep.status, 'ok');
+  ok(seen[0].inside, 'a shadow-DOM target is scrolled into its container view');
+  ok(Math.abs(seen[1].slabTop) <= 1, `a tall target under an overflow-x wrapper shows its top (top at ${seen[1].slabTop})`);
+});
+
 test('createLogger scrubs secrets from everything written', () => {
   const log = createLogger({ secrets: ['hunter2', ''] });
   equal(log.scrub('pw=hunter2 and hunter2'), 'pw=*** and ***');
