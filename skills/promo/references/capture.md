@@ -36,11 +36,11 @@ Each beat is a one-key object. Anything else fails validation.
 | `fill` | `fill: { selector: "#name", text: "Ama Mensah" }` | Types the text key by key. |
 | `select` | `select: { selector: "#plan", value: "pro" }` | Picks an option. |
 | `hover` | `hover: "selector"` | Moves the cursor onto the target. |
-| `scroll` | `scroll: "selector"` | Smooth-scrolls the target to the centre of the view, even if it is already visible. |
+| `scroll` | `scroll: "selector"` | Smooth-scrolls the target to the centre of the view (its top edge, if it is taller than the view), even if it is already visible. |
 | `wait` | `wait: 800` | Milliseconds, 0 to 3000. |
 | `settle` | `settle: "selector"` | Waits until visible, holds, and saves a still. Put one after every state change you want to show. A target already fully in view does not move the page; an off-screen one is smooth-scrolled to the centre first. |
 
-Every beat that names a selector brings an off-screen target into view with a smooth scroll, never a jump. To show a long scroll on purpose, use `scroll`.
+Every beat that names a selector brings an off-screen target into view with a smooth scroll, never a jump, including a target hidden inside a scrolling panel. A target taller than the view counts as in view once it fills the view, and is otherwise scrolled to its top edge. To show a long scroll on purpose, use `scroll`.
 
 Timing is built in. The cursor eases to its target over about 400 ms and pauses 150 ms before a click. Typing runs 60-90 ms per character with jitter. Each beat ends with a 600 ms hold. A fresh browser context starts every flow, `prefers-reduced-motion` is off, and service workers are blocked. Do not add `wait` to pad time; add a `settle` on the element that proves the page is ready.
 

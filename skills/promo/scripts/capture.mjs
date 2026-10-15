@@ -315,25 +315,45 @@ async function runFlow({ browser, flow, config, origin, outDir, bins, env, logge
     let settleCount = 0;
 
     // Playwright's scrollIntoViewIfNeeded scrolls instantly, which the recording shows as a jump cut.
-    // This animates instead: always for a scroll beat (centre), and for every other beat only when the
-    // target is not fully in view, so an in-view target never moves the page. It returns once the
-    // target's position holds still, which also covers scrolling inside a nested container.
-    const smoothIntoView = (loc, always) => loc.evaluate(async (el, force) => {
+    // This animates instead: always for a scroll beat, and for every other beat only when the target
+    // is not in view, so an in-view target never moves the page. A target taller than its view is
+    // aligned by its top edge, not centred. It returns once the target's position holds still.
+    const smoothIntoView = (loc, always) => loc.evaluate(async (el, { force, capMs }) => {
+      // The area el can be seen in: the window, cut down by every ancestor that clips its overflow.
+      let clip = { top: 0, left: 0, bottom: innerHeight, right: innerWidth };
+      let viewHeight = innerHeight; // height of the nearest clipping ancestor, or the window
+      let nearest = true;
+      for (let a = el.parentElement; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
+        const s = getComputedStyle(a);
+        if (s.overflowX === 'visible' && s.overflowY === 'visible') continue;
+        const b = a.getBoundingClientRect();
+        const top = b.top + a.clientTop;
+        const left = b.left + a.clientLeft;
+        clip = {
+          top: Math.max(clip.top, top), left: Math.max(clip.left, left),
+          bottom: Math.min(clip.bottom, top + a.clientHeight), right: Math.min(clip.right, left + a.clientWidth),
+        };
+        if (nearest) viewHeight = a.clientHeight;
+        nearest = false;
+      }
       const r = el.getBoundingClientRect();
-      const inView = r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth;
+      // Per axis, in view means the target fits inside the clip area or already covers all of it.
+      const fits = (lo, hi, cLo, cHi) => (lo >= cLo - 1 && hi <= cHi + 1) || (lo <= cLo + 1 && hi >= cHi - 1);
+      const inView = fits(r.top, r.bottom, clip.top, clip.bottom) && fits(r.left, r.right, clip.left, clip.right);
       if (inView && !force) return;
-      el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-      const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+      el.scrollIntoView({ behavior: 'smooth', block: r.height > viewHeight ? 'start' : 'center', inline: 'nearest' });
+      // The next animation frame, or 100 ms if frames stop, so a throttled renderer cannot hang the beat.
+      const frame = () => new Promise((resolve) => { requestAnimationFrame(resolve); setTimeout(resolve, 100); });
       const start = performance.now();
       let last = null;
       let still = 0;
-      while (still < 6 && performance.now() - start < 4000) {
+      while (still < 6 && performance.now() - start < capMs) {
         await frame();
         const b = el.getBoundingClientRect();
         still = last && b.top === last.top && b.left === last.left ? still + 1 : 0;
         last = b;
       }
-    }, always);
+    }, { force: always, capMs: Math.min(4000, beatTimeout) }, { timeout: beatTimeout });
 
     const target = async (sel, index, kind) => {
       const loc = page.locator(sel).first();

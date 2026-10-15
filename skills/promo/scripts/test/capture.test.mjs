@@ -280,6 +280,43 @@ test('a settle on an off-screen target scrolls smoothly; on an in-view target it
   ok(n >= ANIMATED_MIN_FRAMES, `settle beat shows ${n} distinct frames; a jump cut shows 2`);
 });
 
+test('a target taller than the view aligns its top and, once it covers the view, does not move', { skip }, async () => {
+  const seen = [];
+  const hooks = {
+    beforeSettle: async ({ page }) => {
+      seen.push(await page.evaluate(() => ({ y: window.scrollY, railTop: document.querySelector('.rail').getBoundingClientRect().top })));
+    },
+  };
+  const file = flowConfig(server.origin, `      - goto: /tall.html
+      - settle: ".rail"
+      - settle: ".rail"
+`, 'tall');
+  const rep = await runCapture({ configPath: file, outDir: tmpDir('out'), logger: quiet, hooks });
+  equal(rep.status, 'ok');
+  ok(Math.abs(seen[0].railTop) <= 1, `the tall target's top is shown, not its middle (top at ${seen[0].railTop})`);
+  equal(seen[1].y, seen[0].y, 'a target that already covers the view does not move the page');
+});
+
+test('a target clipped inside a scroll container is scrolled into the container view', { skip }, async () => {
+  let seen;
+  const hooks = {
+    beforeSettle: async ({ page }) => {
+      seen = await page.evaluate(() => {
+        const box = document.querySelector('.box').getBoundingClientRect();
+        const deep = document.getElementById('deep').getBoundingClientRect();
+        return { inside: deep.top >= box.top && deep.bottom <= box.bottom, inWindow: deep.bottom <= innerHeight };
+      });
+    },
+  };
+  const file = flowConfig(server.origin, `      - goto: /tall.html
+      - settle: "#deep"
+`, 'tall');
+  const rep = await runCapture({ configPath: file, outDir: tmpDir('out'), logger: quiet, hooks });
+  equal(rep.status, 'ok');
+  ok(seen.inWindow, 'fixture: the target lies inside the window, so only the container clips it');
+  ok(seen.inside, 'the clipped target is visible inside its scroll container');
+});
+
 test('createLogger scrubs secrets from everything written', () => {
   const log = createLogger({ secrets: ['hunter2', ''] });
   equal(log.scrub('pw=hunter2 and hunter2'), 'pw=*** and ***');

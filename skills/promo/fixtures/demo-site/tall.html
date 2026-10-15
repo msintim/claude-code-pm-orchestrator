@@ -4,10 +4,14 @@
 <style>
   /* Stripes make every scroll position paint differently, so an animated scroll yields many distinct frames. */
   .rail { height: 4000px; background: repeating-linear-gradient(180deg, #e8eef5 0 120px, #c9d6e4 120px 240px); }
+  /* A scroll container whose #deep item starts clipped out of sight, though still inside the window. */
+  .box { height: 200px; overflow: auto; border: 1px solid #c9d6e4; }
+  .box .spacer { height: 400px; }
 </style></head>
 <body>
 <main>
   <h1 id="top">Ledger</h1>
+  <div class="box"><div class="spacer"></div><p id="deep">Archived entries</p></div>
   <div class="rail"></div>
   <h2 id="bottom">Year-end summary</h2>
 </main>
