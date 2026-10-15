@@ -1,0 +1,39 @@
+version: 1
+product: RPMS
+tagline: "Property management for Ghana, done properly"
+brand:
+  primary: "#0F766E"
+  accent: "#F59E0B"
+  font: "Inter"
+  theme: light
+staging:
+  url: https://staging.rpms.example
+  login:
+    path: /login
+    user_env: RPMS_DEMO_USER
+    pass_env: RPMS_DEMO_PASS
+    submit: "button[type=submit]"
+    settled: "[data-testid=dashboard]"
+hide: [".cookie-banner", "#dev-toolbar"]
+pii_policy: demo-tenant-only
+redact: ["Sintim", "@gmail.com"]
+flows:
+  - name: tenant-onboarding
+    feature: tenants
+    beats:
+      - goto: /tenants/new
+      - fill: { selector: "#name", text: "Ama Mensah" }
+      - select: { selector: "#unit", value: "A12" }
+      - click: "text=Save tenant"
+      - settle: ".toast-success"
+  - name: rent-collection
+    feature: payments
+    beats:
+      - goto: /payments
+      - hover: "text=Record payment"
+      - click: "text=Record payment"
+      - wait: 600
+      - scroll: "#arrears"
+      - settle: ".toast-success"
+music:
+  prefer: upbeat-clean

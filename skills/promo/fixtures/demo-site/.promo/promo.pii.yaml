@@ -1,0 +1,17 @@
+version: 1
+product: Demo
+tagline: "A fixture site whose only flow shows a person's email"
+brand:
+  primary: "#0F766E"
+  accent: "#F59E0B"
+  font: "Inter"
+  theme: light
+staging:
+  url: "{{ORIGIN}}"
+pii_policy: demo-tenant-only
+flows:
+  - name: pii-flow
+    feature: records
+    beats:
+      - goto: /pii.html?v=scroll-email
+      - settle: "#ready"

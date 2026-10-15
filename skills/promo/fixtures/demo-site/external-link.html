@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>External</title><link rel="stylesheet" href="/site.css"></head>
+<body>
+<main>
+  <h1>Leaving</h1>
+  <div class="pulse"></div>
+  <p><a id="out" href="#">Same tab link</a></p>
+  <p><a id="pop" target="_blank" href="#">New tab link</a></p>
+  <p><button id="js" type="button">Script navigation</button></p>
+  <p><button id="bypass" type="button">Popup via a fresh iframe window</button></p>
+</main>
+<script>
+  // ?to=<absolute url> is where every control tries to go.
+  const to = new URLSearchParams(location.search).get('to') || '/';
+  document.getElementById('out').href = to;
+  document.getElementById('pop').href = to;
+  // A pristine window.open from a new iframe sidesteps the page-level rewrite; the browser flag must catch it.
+  document.getElementById('bypass').addEventListener('click', () => {
+    const f = document.createElement('iframe');
+    document.body.appendChild(f);
+    f.contentWindow.open(to, '_blank');
+  });
+  document.getElementById('js').addEventListener('click', () => { location.href = to; });
+</script>
+</body>
+</html>

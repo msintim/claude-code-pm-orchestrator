@@ -1,0 +1,63 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { collectChecks, exitCodeFor } from '../lib/doctor.js';
+import { INSTALL_HINT } from '../lib/ffmpeg.js';
+
+test('doctor reports a missing ffmpeg as a failure carrying the install hint', async () => {
+  const checks = await collectChecks({ env: { PATH: '' } });
+  const ffmpeg = checks.find((c) => c.name === 'ffmpeg');
+  assert.ok(ffmpeg);
+  assert.equal(ffmpeg.ok, false);
+  assert.equal(ffmpeg.fix, INSTALL_HINT);
+});
+
+test('doctor names a mistyped PROMO_FFMPEG instead of reporting a generic miss', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'promo-doctor-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  for (const n of ['ffmpeg', 'ffprobe']) fs.writeFileSync(path.join(dir, n + ext), '');
+  const checks = await collectChecks({ env: { PROMO_FFMPEG: '/nope', PATH: dir } });
+  const ffmpeg = checks.find((c) => c.name === 'ffmpeg');
+  assert.equal(ffmpeg.ok, false);
+  assert.ok(ffmpeg.detail.includes('/nope'));
+  assert.ok(!ffmpeg.detail.includes(INSTALL_HINT));
+  assert.equal(ffmpeg.fix, INSTALL_HINT);
+});
+
+test('doctor passes the node version check on a supported runtime', async () => {
+  const checks = await collectChecks({ env: { PATH: '' } });
+  const node = checks.find((c) => c.name === 'node');
+  assert.ok(node);
+  assert.equal(node.ok, true);
+});
+
+test('every check has a name, boolean ok and a detail string', async () => {
+  const checks = await collectChecks({ env: { PATH: '' } });
+  for (const c of checks) {
+    assert.equal(typeof c.name, 'string');
+    assert.equal(typeof c.ok, 'boolean');
+    assert.equal(typeof c.detail, 'string');
+  }
+});
+
+test('doctor confirms the vendored OCR data is present', async () => {
+  const checks = await collectChecks({ env: { PATH: '' } });
+  const tessdata = checks.find((c) => c.name === 'tessdata');
+  assert.ok(tessdata);
+  assert.equal(tessdata.ok, true);
+  assert.ok(tessdata.detail.includes('eng.traineddata'));
+});
+
+test('exit code: 2 when ffmpeg, chromium or tessdata fail, 1 for other failures, 0 when all pass', () => {
+  const ok = (name) => ({ name, ok: true, detail: '' });
+  const bad = (name) => ({ name, ok: false, detail: '' });
+  assert.equal(exitCodeFor([ok('node'), ok('ffmpeg'), ok('playwright-chromium'), ok('tessdata')]), 0);
+  for (const name of ['ffmpeg', 'playwright-chromium', 'tessdata']) {
+    assert.equal(exitCodeFor([ok('node'), bad(name)]), 2, name);
+  }
+  assert.equal(exitCodeFor([bad('node'), ok('ffmpeg')]), 1);
+  assert.equal(exitCodeFor([bad('node'), bad('tessdata')]), 2);
+});

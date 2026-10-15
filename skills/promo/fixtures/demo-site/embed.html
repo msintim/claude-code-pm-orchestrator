@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Embed</title><link rel="stylesheet" href="/site.css"></head>
+<body>
+<main>
+  <h1>Embedded widget</h1>
+  <div id="slot"></div>
+</main>
+<script>
+  // ?to=<absolute url> becomes an iframe, like a third-party widget would.
+  const f = document.createElement('iframe');
+  f.src = new URLSearchParams(location.search).get('to') || 'about:blank';
+  document.getElementById('slot').appendChild(f);
+</script>
+</body>
+</html>

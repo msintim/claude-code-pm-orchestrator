@@ -1,0 +1,31 @@
+version: 1
+product: Demo
+tagline: "A fixture site for the capture tests"
+brand:
+  primary: "#0F766E"
+  accent: "#F59E0B"
+  font: "Inter"
+  theme: light
+staging:
+  url: "{{ORIGIN}}"
+hide: [".cookie-banner"]
+pii_policy: demo-tenant-only
+flows:
+  - name: tenant-onboarding
+    feature: tenants
+    beats:
+      - goto: /tenants.html
+      - fill: { selector: "#name", text: "Ama Mensah" }
+      - click: "text=Save tenant"
+      - settle: ".toast-success"
+  - name: rent-collection
+    feature: payments
+    beats:
+      - goto: /payments.html
+      - hover: "text=Record payment"
+      - click: "text=Record payment"
+      - settle: ".payment-row.recorded"
+      - wait: 3000
+      - wait: 3000
+      - wait: 3000
+      - wait: 3000

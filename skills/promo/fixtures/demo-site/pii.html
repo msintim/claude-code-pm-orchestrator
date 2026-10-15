@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>PII</title><link rel="stylesheet" href="/site.css">
+<style>
+  .spaced::after { content: 'jane.doe @ example.com'; }
+  .nearbg { font-size: 3px; color: #f6f8fa; }
+</style></head>
+<body>
+<main>
+  <h1>Records</h1>
+  <div class="pulse"></div>
+  <div id="slot"></div>
+</main>
+<script>
+  // ?v=<variant> picks what the page shows; each variant is one PII scenario.
+  const v = new URLSearchParams(location.search).get('v');
+  const slot = document.getElementById('slot');
+  const html = (s) => { slot.innerHTML = s; };
+  if (v === 'scroll-email') {
+    // The email only exists once #ready is scrolled into view, i.e. during the settle beat.
+    html('<div style="height:2600px"></div><div id="ready">Contact</div>');
+    window.addEventListener('scroll', () => { document.getElementById('ready').textContent = 'Contact jane.doe@example.com'; }, { once: true });
+  } else if (v === 'transient') {
+    html('<div id="flash"></div>');
+    setTimeout(() => { document.getElementById('flash').textContent = 'Contact jane.doe@example.com'; }, 1500);
+    setTimeout(() => { document.getElementById('flash').textContent = ''; }, 1900);
+  } else if (v === 'hidden') {
+    html('<p style="display:none">jane.doe@example.com</p><p>Nothing to see</p>');
+  } else if (v === 'nearbg') {
+    html('<p class="nearbg">jane.doe@example.com</p>');
+  } else if (v === 'redact') {
+    html('<p>Owner: Sintim Holdings</p>');
+  } else if (v === 'spaced') {
+    html('<p class="spaced" style="font-size:56px"></p>');
+  } else if (v === 'unhideable') {
+    // An inline !important beats the stylesheet rule hide: installs, so the match stays visible.
+    html('<p class="secret-mail" style="display:block !important">jane.doe@example.com</p>');
+  } else if (v === 'secret-mail') {
+    html('<p class="secret-mail">jane.doe@example.com</p><p>Clean</p>');
+  }
+</script>
+</body>
+</html>

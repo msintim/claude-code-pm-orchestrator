@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "fps": 30,
+  "master": { "w": 1920, "h": 1080 },
+  "brand": { "primary": "#0F766E", "accent": "#F59E0B", "font": "sans-serif", "theme": "light" },
+  "music": { "track": "test-tone", "gain_db": -14, "duck_db": -6 },
+  "scenes": [
+    { "type": "hook", "duration": 2.5, "text": "Rent day, without the chasing.", "transition": "dip-to-brand" },
+    { "type": "footage", "flow": "rent-collection", "in": 3.2, "out": 13.2,
+      "focus": { "x": 420, "y": 180, "w": 1080, "h": 720 },
+      "caption": "Record a payment in one tap", "transition": "cut" },
+    { "type": "feature-callout", "duration": 2, "title": "Arrears, flagged", "body": "Overdue tenants surface early.", "transition": "slide" },
+    { "type": "outro", "duration": 2, "text": "Demo", "sub": "demo.example", "transition": "none" }
+  ]
+}

@@ -18,6 +18,7 @@ MODEL_ALIASES = {"sonnet", "opus", "haiku", "fable", "inherit"}
 # Anthropic-API model IDs, incl. dated/legacy ones and the [1m] suffix; Bedrock/Vertex IDs are not covered.
 FULL_MODEL_ID = re.compile(r"^claude-[a-z0-9]+(-[a-z0-9]+)*(\[1m\])?$")
 GATE_AGENT_PREFIX = "opus-"
+REQUIRED_SKILL_KEYS = {"name", "description"}
 REQUIRED_PLACEHOLDERS = ("<WORKSPACE_ROOT>", "<YOUR_NAME>")
 
 errors = []
@@ -71,6 +72,40 @@ def check_core_prompt(path: Path) -> None:
             errors.append(f"{path}: expected placeholder {placeholder!r} not found")
 
 
+def check_skill(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---\n"):
+        errors.append(f"{path}: missing YAML frontmatter (must start with '---')")
+        return
+    end = text.find("\n---", 4)
+    if end == -1:
+        errors.append(f"{path}: unterminated YAML frontmatter")
+        return
+    raw = text[4:end]
+    try:
+        data = yaml.safe_load(raw)
+    except yaml.YAMLError as exc:
+        errors.append(f"{path}: invalid YAML frontmatter: {exc}")
+        return
+    if not isinstance(data, dict):
+        errors.append(f"{path}: frontmatter did not parse to a mapping")
+        return
+    # Skill frontmatter is exactly name + description; extra keys are not part of the skill format this kit ships.
+    if data.keys() != REQUIRED_SKILL_KEYS:
+        missing = sorted(REQUIRED_SKILL_KEYS - data.keys())
+        extra = sorted(data.keys() - REQUIRED_SKILL_KEYS)
+        errors.append(f"{path}: frontmatter keys must be exactly {sorted(REQUIRED_SKILL_KEYS)} (missing {missing}, unexpected {extra})")
+        return
+    if data["name"] != path.parent.name:
+        errors.append(f"{path}: name {data['name']!r} does not match directory {path.parent.name!r}")
+    description = data["description"]
+    non_blank_lines = [line for line in raw.splitlines() if line.strip()]
+    if not isinstance(description, str) or not description.strip():
+        errors.append(f"{path}: description must be a non-empty string")
+    elif "\n" in description.strip() or len(non_blank_lines) != len(REQUIRED_SKILL_KEYS):
+        errors.append(f"{path}: description must be a single line (no block scalars or wrapped lines)")
+
+
 def main() -> int:
     agents_dir = ROOT / "agents"
     agent_files = sorted(agents_dir.glob("*.md"))
@@ -78,6 +113,11 @@ def main() -> int:
         errors.append(f"no agent files found under {agents_dir}")
     for path in agent_files:
         check_agent_frontmatter(path)
+
+    skills_dir = ROOT / "skills"
+    skill_files = sorted(skills_dir.glob("*/SKILL.md")) if skills_dir.is_dir() else []
+    for path in skill_files:
+        check_skill(path)
 
     claude_md = ROOT / "CLAUDE.md"
     if not claude_md.exists():
@@ -94,7 +134,7 @@ def main() -> int:
             print(f"  - {e}")
         return 1
 
-    print(f"OK: {len(agent_files)} agent file(s) validated, CLAUDE.md placeholders present.")
+    print(f"OK: {len(agent_files)} agent file(s), {len(skill_files)} skill(s) validated, CLAUDE.md placeholders present.")
     return 0
 
 

@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Polling</title><link rel="stylesheet" href="/site.css"></head>
+<body>
+<main>
+  <h1>Live feed</h1>
+  <div class="pulse"></div>
+</main>
+<script>
+  // Never reaches network idle: a request every 200 ms, forever.
+  setInterval(() => { fetch('/site.css', { cache: 'no-store' }).catch(() => {}); }, 200);
+</script>
+</body>
+</html>
